@@ -50,6 +50,8 @@ pnpm dev
 docker compose up -d --build
 ```
 
+应用默认通过 <http://localhost:61616> 访问，容器内部仍使用 `3000` 端口。
+
 `/app/data` 使用 Docker volume 保存。单容器部署时内置 scheduler 会启动；多副本部署时应只保留一个 scheduler。
 
 ## API 概览
