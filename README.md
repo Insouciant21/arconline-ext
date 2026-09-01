@@ -7,6 +7,7 @@
 - 移动端 Chrome UA 访问 Lowiro API 与曲绘资源。
 - Auth.js 登录页使用服务端 `ADMIN_TOKEN` 建立会话；未登录无法访问页面和业务 API。
 - `POST /api/sync`：获取 B50、将快照正文备份为 `snapshots/{snapshotId}.json`，并把潜力值图片、玩家角色头像和 B50 曲绘上传 R2。
+- `/history`：查看本地快照与 R2 备份合并后的历史 B50，并按快照切换查看 50 首成绩。
 - 角色头像按 `characterId + icon` 缓存在 `data/character-images.json`，避免重复下载和上传；角色资源变更时自动生成新的 R2 对象。
 - 每天 `23:59:59`（默认 `Asia/Shanghai`）由 Node cron 自动执行一次每日同步。
 - 每次 B50 快照保存到 `data/b50-history.json`、`data/b50-history.csv` 和 `data/snapshots/*.json`；每日快照追加到 `data/ptt-history.json/csv`。
@@ -60,6 +61,7 @@ docker compose up -d --build
 | --- | --- | --- |
 | GET/POST | `/api/auth/*` | Auth.js 登录、登出和会话接口 |
 | GET | `/api/dashboard` | 当前快照、PTT 历史和 scheduler 信息（需登录） |
+| GET | `/history` | 历史 B50 快照页面（需登录） |
 | POST | `/api/sync` | 手动抓取并归档（需登录） |
 | GET/POST | `/api/cron/daily` | 手动触发每日同步（需登录） |
 | GET | `/api/media/{key}` | 无 R2 公开域名时的对象代理（需登录） |
