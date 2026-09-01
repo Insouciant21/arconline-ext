@@ -1,0 +1,13 @@
+services:
+  arcaea-b50-studio:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+    volumes:
+      - arcaea-data:/app/data
+
+volumes:
+  arcaea-data:

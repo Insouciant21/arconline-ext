@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.env
+.env.*
+exports
+data/.sync.lock
+data/latest.json
+data/b50-history.json
+data/b50-history.csv
+data/ptt-history.json
+data/ptt-history.csv
+*.log
