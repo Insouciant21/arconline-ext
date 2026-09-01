@@ -1,4 +1,4 @@
-# Arcaea B50 Studio
+# Arcaea Online Extension
 
 一个面向单个 Arcaea 账号的全栈归档面板：服务端登录 Lowiro，抓取当前 B50 和官方潜力值图片，将 B50 快照正文与媒体重传到 Cloudflare R2；同时写入本地 JSON/CSV，按天生成潜力值历史。
 
