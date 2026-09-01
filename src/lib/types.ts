@@ -95,6 +95,15 @@ export interface DashboardPayload {
   };
 }
 
+export interface HistoryPayload {
+  snapshots: B50Snapshot[];
+  sources: {
+    localCount: number;
+    r2Count: number;
+    r2Available: boolean;
+  };
+}
+
 export interface SyncResult {
   snapshot: B50Snapshot;
   message: string;

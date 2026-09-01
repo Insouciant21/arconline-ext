@@ -127,6 +127,9 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
           </span>
         </a>
         <div className="topbar-actions">
+          <a className="history-nav-link" href="/history">
+            历史
+          </a>
           <SignOutButton />
         </div>
       </header>
