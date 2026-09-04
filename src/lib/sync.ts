@@ -1,9 +1,12 @@
+import { sameB50, scoreMediaKey } from "./b50";
 import { ArcaeaClient } from "./arcaea-client";
 import { config, requireR2 } from "./config";
 import {
+  appendLog,
   getLocalDate,
   mergeCharacterImageMap,
   mergeChartImageMap,
+  readLatest,
   readCharacterImageMap,
   readChartImageMap,
   withFileLock,
@@ -19,7 +22,9 @@ import type {
   ChartImageCache,
   ChartImageCacheEntry,
   ImageStats,
+  LogEntry,
   StoredUser,
+  SyncResult,
 } from "./types";
 
 export type SyncTrigger = "manual" | "daily" | "cron";
@@ -29,52 +34,138 @@ interface MediaSyncJob {
   snapshot: B50Snapshot;
 }
 
-export async function runSync(trigger: SyncTrigger): Promise<B50Snapshot> {
-  const job = await withFileLock("sync", async (): Promise<MediaSyncJob> => {
-    requireR2();
-    const client = await ArcaeaClient.login();
-    const remote = await client.fetchB50Snapshot();
-    const [chartImageMap, characterImageMap] = await Promise.all([
-      readChartImageMap(),
-      readCharacterImageMap(),
-    ]);
-    const fetchedAt = new Date().toISOString();
-    const id = snapshotId(new Date(fetchedAt));
-    const best50 = remote.best50.map((score) => enrichScoreFromCache(score, chartImageMap));
-    const user = enrichUserFromCache(remote.user, characterImageMap);
-    const uniqueScores = dedupeByBackground(best50);
-    const imageStats: ImageStats = {
-      requested: uniqueScores.length,
-      uploaded: 0,
-      failed: 0,
-      failures: [],
-      cached: uniqueScores.filter((score) => Boolean(cachedChartImageForScore(score, chartImageMap))).length,
-    };
-    const snapshot: B50Snapshot = {
-      id,
-      fetchedAt,
-      trigger,
-      potential: formatPotential(remote.user.rating),
-      weightedPotential: formatPotential(calculateWeightedPotential(best50.map((score) => score.rating))),
-      user,
-      best50,
-      imageStats,
-      mediaStatus: "processing",
-    };
-
-    // Persist the score data before any media request. The API can now return
-    // the B50 while the image pipeline continues in the background.
-    await persistSnapshot(snapshot);
-    return { client, snapshot };
+export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
+  await recordLog({
+    scope: "b50",
+    level: "info",
+    action: "started",
+    message: `开始获取 B50（${trigger}）。`,
+    details: { trigger },
   });
 
-  // The self-hosted Docker process remains alive after the response. Keep the
-  // media work detached so the B50 response is not held by Lowiro/R2 latency.
-  void finishMediaSync(job);
-  return job.snapshot;
+  try {
+    const job = await withFileLock("sync", async (): Promise<SyncJob> => {
+      requireR2();
+      const client = await ArcaeaClient.login();
+      const remote = await client.fetchB50Snapshot();
+      const previous = await readLatest();
+      const [chartImageMap, characterImageMap] = await Promise.all([
+        readChartImageMap(),
+        readCharacterImageMap(),
+      ]);
+      const fetchedAt = new Date().toISOString();
+      const id = snapshotId(new Date(fetchedAt));
+      const best50 = remote.best50.map((score) => enrichScoreFromCache(score, chartImageMap));
+      const user = enrichUserFromCache(remote.user, characterImageMap);
+      const uniqueScores = dedupeByBackground(best50);
+      const imageStats: ImageStats = {
+        requested: uniqueScores.length,
+        uploaded: 0,
+        failed: 0,
+        failures: [],
+        cached: uniqueScores.filter((score) => Boolean(cachedChartImageForScore(score, chartImageMap))).length,
+      };
+      const snapshot: B50Snapshot = {
+        id,
+        fetchedAt,
+        trigger,
+        potential: formatPotential(remote.user.rating),
+        weightedPotential: formatPotential(calculateWeightedPotential(best50.map((score) => score.rating))),
+        user,
+        best50,
+        imageStats,
+        mediaStatus: "processing",
+      };
+
+      if (previous && sameB50(previous, { best50: remote.best50 })) {
+        return {
+          client,
+          snapshot: buildDuplicatePreview(snapshot, previous),
+          recorded: false,
+          duplicateOf: previous.id,
+        };
+      }
+
+      // Persist the score data before any media request. The API can now return
+      // the B50 while the image pipeline continues in the background.
+      await persistSnapshot(snapshot);
+      return { client, snapshot, recorded: true };
+    });
+
+    if (!job.recorded) {
+      await recordLog({
+        scope: "b50",
+        level: "warning",
+        action: "skipped",
+        message: "B50 与上次获取相同，仅在当前页面显示，未写入本地历史或 R2。",
+        snapshotId: job.snapshot.id,
+        details: {
+          duplicateOf: job.duplicateOf || "",
+          entries: job.snapshot.best50.length,
+        },
+      });
+      await recordLog({
+        scope: "media",
+        level: "info",
+        action: "skipped",
+        message: "B50 未变化，跳过 MEDIA PROCESS 和 R2 媒体上传。",
+        snapshotId: job.snapshot.id,
+        details: { duplicateOf: job.duplicateOf || "" },
+      });
+      return {
+        snapshot: job.snapshot,
+        recorded: false,
+        ...(job.duplicateOf ? { duplicateOf: job.duplicateOf } : {}),
+        message: "B50 与上次获取相同，仅保留在当前页面显示，未写入本地历史或 R2。",
+      };
+    }
+
+    await recordLog({
+      scope: "b50",
+      level: "success",
+      action: "recorded",
+      message: "B50 获取成功，已记录到本地并备份至 R2。",
+      snapshotId: job.snapshot.id,
+      details: {
+        entries: job.snapshot.best50.length,
+        potential: job.snapshot.potential,
+      },
+    });
+
+    // The self-hosted Docker process remains alive after the response. Keep the
+    // media work detached so the B50 response is not held by Lowiro/R2 latency.
+    void finishMediaSync(job);
+    return {
+      snapshot: job.snapshot,
+      recorded: true,
+      message: "B50 已获取并记录，潜力图、曲绘与头像正在后台处理。",
+    };
+  } catch (error) {
+    await recordLog({
+      scope: "b50",
+      level: "error",
+      action: "failed",
+      message: `B50 获取失败：${error instanceof Error ? error.message : "未知错误"}`,
+    });
+    throw error;
+  }
+}
+
+interface SyncJob extends MediaSyncJob {
+  recorded: boolean;
+  duplicateOf?: string;
 }
 
 async function finishMediaSync({ client, snapshot }: MediaSyncJob) {
+  await recordLog({
+    scope: "media",
+    level: "info",
+    action: "started",
+    message: "开始 MEDIA PROCESS，处理潜力图、曲绘与头像。",
+    snapshotId: snapshot.id,
+    details: { entries: snapshot.best50.length },
+  });
+
   try {
     requireR2();
     const [potentialResult, chartResult, characterResult] = await Promise.all([
@@ -114,6 +205,22 @@ async function finishMediaSync({ client, snapshot }: MediaSyncJob) {
       ...(mediaError ? { mediaError } : {}),
     };
     await persistSnapshot(updatedSnapshot);
+    await recordLog({
+      scope: "media",
+      level: failures.length > 0 ? "warning" : "success",
+      action: failures.length > 0 ? "partial" : "completed",
+      message: failures.length > 0
+        ? `MEDIA PROCESS 完成，但有 ${failures.length} 个媒体资源失败。`
+        : "MEDIA PROCESS 完成，媒体资源已备份至 R2。",
+      snapshotId: snapshot.id,
+      details: {
+        chartUploaded: chartResult.uploaded,
+        chartCached: chartResult.cached,
+        failed: failures.length,
+        potentialUploaded: Boolean(potentialResult.key),
+        characterReady: Boolean(characterResult.user.avatarImageKey || characterResult.user.avatarImageUrl),
+      },
+    });
   } catch (error) {
     const mediaError = error instanceof Error ? error.message : "媒体同步失败。";
     const failedSnapshot = { ...snapshot, mediaStatus: "failed" as const, mediaError };
@@ -122,6 +229,13 @@ async function finishMediaSync({ client, snapshot }: MediaSyncJob) {
     } catch (persistError) {
       console.error("[sync] failed to persist media error", persistError);
     }
+    await recordLog({
+      scope: "media",
+      level: "error",
+      action: "failed",
+      message: `MEDIA PROCESS 失败：${mediaError}`,
+      snapshotId: snapshot.id,
+    });
     console.error(`[sync] background media sync failed for ${snapshot.id}`, error);
   }
 }
@@ -129,6 +243,68 @@ async function finishMediaSync({ client, snapshot }: MediaSyncJob) {
 async function persistSnapshot(snapshot: B50Snapshot) {
   await writeSnapshot(snapshot);
   await putSnapshot(snapshot);
+}
+
+async function recordLog(
+  input: Omit<LogEntry, "id" | "timestamp"> & { timestamp?: string },
+) {
+  try {
+    await appendLog(input);
+  } catch (error) {
+    console.error("[logs] failed to persist application log", error);
+  }
+}
+
+function buildDuplicatePreview(snapshot: B50Snapshot, previous: B50Snapshot): B50Snapshot {
+  const previousScores = new Map(previous.best50.map((score) => [scoreMediaKey(score), score]));
+  const best50 = snapshot.best50.map((score) => {
+    const previousScore = previousScores.get(scoreMediaKey(score));
+    if (!previousScore || score.imageKey || score.imageUrl) return score;
+    if (previousScore.imageKey) {
+      return {
+        ...score,
+        imageKey: previousScore.imageKey,
+        imageUrl: publicAssetUrl(previousScore.imageKey),
+      };
+    }
+    return previousScore.imageUrl ? { ...score, imageUrl: previousScore.imageUrl } : score;
+  });
+  const user = snapshot.user.avatarImageKey || snapshot.user.avatarImageUrl
+    ? snapshot.user
+    : previous.user.avatarImageKey
+      ? {
+          ...snapshot.user,
+          avatarImageKey: previous.user.avatarImageKey,
+          avatarImageUrl: publicAssetUrl(previous.user.avatarImageKey),
+        }
+      : previous.user.avatarImageUrl
+        ? { ...snapshot.user, avatarImageUrl: previous.user.avatarImageUrl }
+        : snapshot.user;
+
+  return {
+    ...snapshot,
+    user,
+    best50,
+    ...(previous.potentialImageKey
+      ? {
+          potentialImageKey: previous.potentialImageKey,
+          potentialImageUrl: publicAssetUrl(previous.potentialImageKey),
+        }
+      : previous.potentialImageUrl
+        ? { potentialImageUrl: previous.potentialImageUrl }
+        : {}),
+    imageStats: {
+      ...snapshot.imageStats,
+      uploaded: 0,
+      failed: 0,
+      failures: [],
+      cached: dedupeByBackground(best50).filter((score) => Boolean(score.imageKey || score.imageUrl)).length,
+    },
+    mediaStatus: previous.mediaStatus === "failed" ? "failed" : "complete",
+    ...(previous.mediaStatus === "failed" && previous.mediaError
+      ? { mediaError: previous.mediaError }
+      : {}),
+  };
 }
 
 async function uploadPotentialImage(client: ArcaeaClient, snapshot: B50Snapshot) {

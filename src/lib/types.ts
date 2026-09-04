@@ -104,7 +104,27 @@ export interface HistoryPayload {
   };
 }
 
+export type LogScope = "b50" | "media";
+export type LogLevel = "info" | "success" | "warning" | "error";
+
+export interface LogEntry {
+  id: string;
+  timestamp: string;
+  scope: LogScope;
+  level: LogLevel;
+  action: string;
+  message: string;
+  snapshotId?: string;
+  details?: Record<string, string | number | boolean>;
+}
+
+export interface LogsPayload {
+  entries: LogEntry[];
+}
+
 export interface SyncResult {
   snapshot: B50Snapshot;
+  recorded: boolean;
+  duplicateOf?: string;
   message: string;
 }

@@ -130,6 +130,9 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
           <a className="history-nav-link" href="/history">
             历史
           </a>
+          <a className="history-nav-link" href="/logs">
+            日志
+          </a>
           <SignOutButton />
         </div>
       </header>
