@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { config } from "./config";
@@ -9,6 +10,7 @@ import type {
   CharacterImageCacheEntry,
   ChartImageCache,
   ChartImageCacheEntry,
+  LogEntry,
   PotentialHistoryPoint,
 } from "./types";
 
@@ -20,9 +22,11 @@ const paths = {
   pttHistoryCsv: path.join(config.dataDir, "ptt-history.csv"),
   chartImages: path.join(config.dataDir, "chart-images.json"),
   characterImages: path.join(config.dataDir, "character-images.json"),
+  logs: path.join(config.dataDir, "logs.json"),
 };
 
 const runtimeStartedAt = Date.now() - process.uptime() * 1000;
+const MAX_LOG_ENTRIES = 500;
 
 export async function ensureDataStore() {
   await mkdir(config.dataDir, { recursive: true });
@@ -64,6 +68,34 @@ export async function readPttHistory() {
     readJson<B50Snapshot[]>(paths.b50History, []),
   ]);
   return aggregateDailyPttHistory(snapshots, stored);
+}
+
+export async function readLogs(limit = 200) {
+  await ensureDataStore();
+  const logs = await readJson<LogEntry[]>(paths.logs, []);
+  return logs
+    .filter(isLogEntry)
+    .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
+    .slice(0, limit);
+}
+
+export async function appendLog(
+  input: Omit<LogEntry, "id" | "timestamp"> & { timestamp?: string },
+) {
+  return withFileLock("logs", async () => {
+    const timestamp = input.timestamp || new Date().toISOString();
+    const entry: LogEntry = {
+      ...input,
+      id: `${timestamp}-${randomUUID()}`,
+      timestamp,
+    };
+    const current = (await readJson<LogEntry[]>(paths.logs, [])).filter(isLogEntry);
+    const next = [entry, ...current]
+      .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
+      .slice(0, MAX_LOG_ENTRIES);
+    await atomicWrite(paths.logs, `${JSON.stringify(next, null, 2)}\n`);
+    return entry;
+  });
 }
 
 export async function readChartImageMap(): Promise<ChartImageCache> {
@@ -311,6 +343,22 @@ function isProcessAlive(pid: number) {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code !== "ESRCH";
   }
+}
+
+function isLogEntry(value: unknown): value is LogEntry {
+  if (!value || typeof value !== "object") return false;
+  const log = value as Partial<LogEntry>;
+  return (
+    typeof log.id === "string" &&
+    typeof log.timestamp === "string" &&
+    (log.scope === "b50" || log.scope === "media") &&
+    (log.level === "info" ||
+      log.level === "success" ||
+      log.level === "warning" ||
+      log.level === "error") &&
+    typeof log.action === "string" &&
+    typeof log.message === "string"
+  );
 }
 
 function csvEscape(value: string | number | boolean) {

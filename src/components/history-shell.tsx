@@ -33,6 +33,9 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
             <ArrowLeft size={15} />
             概览
           </a>
+          <a className="history-nav-link" href="/logs">
+            日志
+          </a>
           <SignOutButton />
         </div>
       </header>

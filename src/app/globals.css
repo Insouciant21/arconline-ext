@@ -200,6 +200,36 @@ input:focus-visible {
 .history-empty h2 { margin: 15px 0 0; color: var(--ink); font-size: 19px; }
 .history-empty p { margin: 8px 0 0; font-size: 11px; }
 .history-empty-link { margin-top: 17px; padding: 9px 15px; color: #fff; background: var(--purple); clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 50%, calc(100% - 7px) 100%, 7px 100%, 0 50%); font-family: var(--font-heading); font-size: 10px; letter-spacing: .1em; }
+.logs-intro { display: flex; align-items: flex-end; justify-content: space-between; gap: 30px; padding: 42px 5% 0; }
+.logs-intro .section-kicker { margin-bottom: 11px; }
+.logs-intro h1 { margin: 0; color: var(--ink); font-size: 36px; line-height: 1; letter-spacing: -.05em; }
+.logs-intro h1 span { margin-left: 12px; color: var(--muted-2); font-size: 11px; letter-spacing: .18em; }
+.logs-description { margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.logs-overview { display: grid; grid-template-columns: repeat(3, minmax(78px, 1fr)); min-width: 290px; border-left: 1px solid var(--line); }
+.logs-overview > div { padding: 0 15px; border-right: 1px solid var(--line); }
+.logs-overview > div:last-child { border-right: 0; }
+.logs-overview span { display: block; color: var(--muted); font-family: var(--font-heading); font-size: 8px; letter-spacing: .14em; white-space: nowrap; }
+.logs-overview strong { display: block; margin-top: 6px; color: var(--purple); font-family: var(--font-number); font-size: 23px; line-height: 1; }
+.logs-panel { margin: 36px 5% 0; border: 1px solid var(--line); background: var(--surface); }
+.logs-panel-heading { display: flex; align-items: center; justify-content: space-between; min-height: 49px; padding: 0 15px; border-bottom: 1px solid var(--line); color: var(--muted); font-family: var(--font-heading); font-size: 9px; letter-spacing: .16em; }
+.logs-panel-heading strong { color: var(--purple); font-family: var(--font-number); font-size: 18px; letter-spacing: 0; }
+.logs-list { display: grid; }
+.log-entry { display: grid; grid-template-columns: 145px minmax(0, 1fr); gap: 18px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+.log-entry:last-child { border-bottom: 0; }
+.log-entry-type { display: grid; align-content: start; gap: 6px; color: var(--purple); font-family: var(--font-heading); font-size: 10px; letter-spacing: .1em; }
+.log-entry-type small { width: fit-content; padding: 3px 5px; border: 1px solid currentColor; font-size: 8px; letter-spacing: .08em; }
+.log-entry-copy { min-width: 0; }
+.log-entry-copy time { display: block; color: var(--muted-2); font-family: var(--font-heading); font-size: 9px; letter-spacing: .08em; }
+.log-entry-copy p { margin: 5px 0 4px; color: var(--ink); font-size: 12px; line-height: 1.5; }
+.log-entry-copy small { display: block; overflow: hidden; color: var(--muted); font-family: var(--font-heading); font-size: 8px; letter-spacing: .08em; text-overflow: ellipsis; white-space: nowrap; }
+.log-entry-info .log-entry-type { color: var(--cyan-deep); }
+.log-entry-success .log-entry-type { color: var(--green-deep, #7d9730); }
+.log-entry-warning .log-entry-type { color: var(--orange); }
+.log-entry-error .log-entry-type { color: var(--danger); }
+.logs-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 290px; margin: 36px 5% 0; border: 1px dashed var(--line-strong); color: var(--muted); text-align: center; }
+.logs-empty svg { color: var(--purple); }
+.logs-empty h2 { margin: 15px 0 0; color: var(--ink); font-size: 19px; }
+.logs-empty p { margin: 8px 0 0; font-size: 11px; }
 
 .arcaea-card { border: 1px solid var(--line); background: var(--surface); }
 
@@ -432,6 +462,8 @@ input:focus-visible {
   .history-layout { grid-template-columns: 1fr; gap: 24px; }
   .history-index { position: static; }
   .history-index-list { max-height: none; }
+  .logs-intro { align-items: flex-start; flex-direction: column; gap: 24px; }
+  .logs-overview { width: 100%; min-width: 0; }
 }
 
 @media (max-width: 520px) {
@@ -450,6 +482,14 @@ input:focus-visible {
   .history-detail-potential strong { display: inline-block; margin-left: 10px; }
   .history-detail-meta { align-items: flex-start; flex-direction: column; gap: 7px; }
   .history-empty { margin-right: 6%; margin-left: 6%; }
+  .logs-intro { padding-right: 6%; padding-left: 6%; }
+  .logs-intro h1 { font-size: 30px; }
+  .logs-intro h1 span { display: block; margin: 9px 0 0; font-size: 10px; }
+  .logs-overview > div { padding-right: 8px; padding-left: 8px; }
+  .logs-overview span { font-size: 7px; letter-spacing: .08em; }
+  .logs-overview strong { font-size: 20px; }
+  .logs-panel { margin-right: 6%; margin-left: 6%; }
+  .log-entry { grid-template-columns: 1fr; gap: 9px; padding-right: 12px; padding-left: 12px; }
   .profile-card { grid-template-columns: auto minmax(0, 1fr); }
   .profile-potential { grid-column: 1 / -1; min-width: 0; padding: 12px 0 0; border-top: 1px solid var(--line); border-left: 0; text-align: left; }
   .profile-potential strong { display: inline-block; margin-left: 10px; }

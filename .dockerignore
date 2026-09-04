@@ -10,4 +10,6 @@ data/b50-history.json
 data/b50-history.csv
 data/ptt-history.json
 data/ptt-history.csv
+data/logs.json
+data/logs.lock
 *.log

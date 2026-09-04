@@ -22,6 +22,7 @@ ENV PORT=3000
 WORKDIR /app
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 COPY --from=builder /app/public ./public
+COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 RUN mkdir -p /app/data/snapshots && chown -R nextjs:nodejs /app
