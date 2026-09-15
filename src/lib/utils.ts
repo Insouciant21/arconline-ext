@@ -52,6 +52,21 @@ export function formatRelativeDate(value: string | number) {
   }).format(date);
 }
 
+export function formatJoinDate(value: number) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  return year && month && day ? `${year}/${month}/${day}` : "—";
+}
+
 export function difficultyLabel(difficulty: number) {
   return ["Past", "Present", "Future", "Beyond", "Eternal", "Inscribed"][difficulty] ?? `D${difficulty}`;
 }

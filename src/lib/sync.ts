@@ -1,6 +1,7 @@
 import { sameB50, scoreMediaKey } from "./b50";
 import { ArcaeaClient } from "./arcaea-client";
 import { config, requireR2 } from "./config";
+import { AppError } from "./errors";
 import {
   appendLog,
   getLocalDate,
@@ -29,9 +30,15 @@ import type {
 
 export type SyncTrigger = "manual" | "daily" | "cron";
 
+export interface MediaRetryResult {
+  snapshot: B50Snapshot;
+  message: string;
+}
+
 interface MediaSyncJob {
   client: ArcaeaClient;
   snapshot: B50Snapshot;
+  retry?: boolean;
 }
 
 export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
@@ -151,19 +158,54 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
   }
 }
 
+export async function retryMediaSync(): Promise<MediaRetryResult> {
+  const job = await withFileLock("sync", async (): Promise<MediaSyncJob> => {
+    requireR2();
+    const previous = await readLatest();
+    if (!previous) {
+      throw new AppError("还没有可重试的 B50 快照。", 404, "MEDIA_RETRY_SNAPSHOT_MISSING");
+    }
+    if (previous.mediaStatus !== "failed") {
+      throw new AppError("当前快照没有可重试的 MEDIA PARTIAL 任务。", 409, "MEDIA_RETRY_NOT_AVAILABLE");
+    }
+
+    const client = await ArcaeaClient.login();
+    const snapshot = prepareMediaRetry(previous);
+    await persistSnapshot(snapshot);
+    return { client, snapshot, retry: true };
+  });
+
+  await recordLog({
+    scope: "media",
+    level: "info",
+    action: "retry",
+    message: "手动重试 MEDIA PROCESS，继续处理失败的媒体资源。",
+    snapshotId: job.snapshot.id,
+    details: { entries: job.snapshot.best50.length },
+  });
+  void finishMediaSync(job);
+
+  return {
+    snapshot: job.snapshot,
+    message: "MEDIA PARTIAL 已进入重试，失败的媒体资源正在后台处理。",
+  };
+}
+
 interface SyncJob extends MediaSyncJob {
   recorded: boolean;
   duplicateOf?: string;
 }
 
-async function finishMediaSync({ client, snapshot }: MediaSyncJob) {
+async function finishMediaSync({ client, snapshot, retry = false }: MediaSyncJob) {
   await recordLog({
     scope: "media",
     level: "info",
     action: "started",
-    message: "开始 MEDIA PROCESS，处理潜力图、曲绘与头像。",
+    message: retry
+      ? "开始重试 MEDIA PROCESS，处理失败的媒体资源。"
+      : "开始 MEDIA PROCESS，处理潜力图、曲绘与头像。",
     snapshotId: snapshot.id,
-    details: { entries: snapshot.best50.length },
+    details: { entries: snapshot.best50.length, retry },
   });
 
   try {
@@ -184,8 +226,9 @@ async function finishMediaSync({ client, snapshot }: MediaSyncJob) {
     const mediaError = failures.length > 0
       ? potentialResult.error || `${failures.length} 个媒体资源上传失败。`
       : undefined;
+    const { mediaError: _previousMediaError, ...snapshotWithoutMediaError } = snapshot;
     const updatedSnapshot: B50Snapshot = {
-      ...snapshot,
+      ...snapshotWithoutMediaError,
       user: characterResult.user,
       best50,
       ...(potentialResult.key
@@ -307,7 +350,25 @@ function buildDuplicatePreview(snapshot: B50Snapshot, previous: B50Snapshot): B5
   };
 }
 
+function prepareMediaRetry(snapshot: B50Snapshot): B50Snapshot {
+  const { mediaError: _previousMediaError, ...snapshotWithoutMediaError } = snapshot;
+  return {
+    ...snapshotWithoutMediaError,
+    imageStats: {
+      ...snapshot.imageStats,
+      uploaded: 0,
+      failed: 0,
+      failures: [],
+    },
+    mediaStatus: "processing",
+  };
+}
+
 async function uploadPotentialImage(client: ArcaeaClient, snapshot: B50Snapshot) {
+  if (snapshot.potentialImageKey) {
+    return { key: snapshot.potentialImageKey };
+  }
+
   try {
     const image = await client.getOnlineImage();
     const extension = extensionForContentType(image.contentType);

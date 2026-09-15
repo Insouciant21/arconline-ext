@@ -70,11 +70,13 @@ export class ArcaeaClient {
           .find((character) => asOptionalInteger(character.character_id) === characterId)
       : undefined;
     const characterIcon = asOptionalString(activeCharacter?.icon);
+    const joinDate = asOptionalInteger(raw.join_date);
     return {
       rating: normalizePotential(raw.rating),
       name: asOptionalString(raw.name || raw.display_name || raw.user_name),
       userCode: asOptionalString(raw.user_code || raw.usercode),
       country: asOptionalString(raw.country),
+      ...(joinDate !== undefined ? { joinDate } : {}),
       ...(characterId !== undefined ? { characterId } : {}),
       ...(characterIcon ? { characterIcon } : {}),
     };

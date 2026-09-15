@@ -28,6 +28,7 @@ export interface StoredUser {
   name?: string;
   userCode?: string;
   country?: string;
+  joinDate?: number;
   characterId?: number;
   characterIcon?: string;
   avatarImageKey?: string;

@@ -147,6 +147,7 @@ input:focus-visible {
 .profile-copy { min-width: 0; }
 .profile-copy h2 { margin: 4px 0 3px; overflow: hidden; font-size: 17px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .profile-copy p { margin: 0; overflow: hidden; color: var(--muted); font-family: var(--font-body); font-size: 9px; font-weight: 400; letter-spacing: .06em; text-overflow: ellipsis; white-space: nowrap; }
+.profile-join-date { color: var(--muted); font-family: var(--font-heading); letter-spacing: .08em; }
 .profile-potential { min-width: 145px; padding-left: 18px; border-left: 1px solid var(--line); text-align: right; }
 .profile-potential span { display: block; color: var(--muted); font-size: 8px; letter-spacing: .12em; }
 .profile-potential strong { display: block; margin-top: 4px; color: var(--purple); font-family: var(--font-number); font-size: 25px; font-weight: 700; }
@@ -244,6 +245,8 @@ input:focus-visible {
 .media-status::before { width: 5px; height: 5px; border-radius: 50%; background: currentColor; content: ""; }
 .media-processing { color: var(--orange); }
 .media-failed { color: var(--danger); }
+.arcaea-button.media-retry-button { min-height: 27px; padding: 0 9px; border: 1px solid rgba(191, 36, 68, .28); clip-path: none; font-size: 9px; letter-spacing: .06em; }
+.arcaea-button.media-retry-button svg { flex: 0 0 auto; }
 .formula-strip { display: flex; align-items: center; gap: 16px; min-height: 45px; margin-bottom: 14px; padding: 0 16px; border: 1px solid var(--line); border-left: 3px solid var(--cyan); background: var(--surface-soft); color: var(--muted); font-size: 11px; line-height: 1.35; letter-spacing: .05em; }
 .formula-strip strong { color: var(--ink); font-weight: 500; }
 .formula-strip i { width: 1px; height: 13px; background: var(--line-strong); }

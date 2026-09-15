@@ -22,9 +22,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { DashboardPayload } from "@/lib/types";
-import { formatRelativeDate } from "@/lib/utils";
+import { formatJoinDate, formatRelativeDate } from "@/lib/utils";
 
-type ActionState = "idle" | "syncing";
+type ActionState = "idle" | "syncing" | "retrying";
 type ChartRange = (typeof chartRanges)[number]["label"];
 
 const chartRanges = [
@@ -40,6 +40,7 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
   const [action, setAction] = React.useState<ActionState>("idle");
   const [message, setMessage] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [lastAction, setLastAction] = React.useState<"sync" | "retry">("sync");
   const [logOpen, setLogOpen] = React.useState(false);
   const [chartRange, setChartRange] = React.useState<ChartRange>("1Y");
 
@@ -52,6 +53,7 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
 
   async function startSync() {
     setAction("syncing");
+    setLastAction("sync");
     setMessage(null);
     setError(null);
     try {
@@ -71,6 +73,34 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
       setLogOpen(true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "同步失败");
+      setLogOpen(true);
+    } finally {
+      setAction("idle");
+    }
+  }
+
+  async function retryMedia() {
+    setAction("retrying");
+    setLastAction("retry");
+    setMessage(null);
+    setError(null);
+    try {
+      const response = await fetch("/api/media/retry", { method: "POST" });
+      const payload = (await response.json()) as {
+        message?: string;
+        error?: string;
+        snapshot?: NonNullable<DashboardPayload["latest"]>;
+      };
+      if (!response.ok) throw new Error(payload.error || "媒体重试失败");
+      if (payload.snapshot) {
+        setData((current) => ({ ...current, latest: payload.snapshot! }));
+      } else {
+        await refresh();
+      }
+      setMessage(payload.message || "媒体处理已开始重试");
+      setLogOpen(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "媒体重试失败");
       setLogOpen(true);
     } finally {
       setAction("idle");
@@ -154,7 +184,11 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
           <div className="profile-copy">
             <span className="score-label">PLAYER PROFILE</span>
             <h2>{latest?.user.name || "ARCAEA PLAYER"}</h2>
-            <p>{latest?.user.userCode ? `USER CODE ${latest.user.userCode}` : "等待首次同步"}{latest?.user.country ? ` · ${latest.user.country}` : ""}</p>
+            <p>
+              {latest?.user.userCode ? `USER CODE ${latest.user.userCode}` : "等待首次同步"}
+              {latest?.user.country ? ` · ${latest.user.country}` : ""}
+              {latest?.user.joinDate ? <span className="profile-join-date"> · JOINED {formatJoinDate(latest.user.joinDate)}</span> : null}
+            </p>
           </div>
           <div className="profile-potential">
             <span>潜力值 / POTENTIAL</span>
@@ -172,7 +206,7 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
       <section className="section-block" id="b50">
         <div className="section-heading-row">
           <div><p className="section-kicker">RANKED PERFORMANCE</p><h2>BEST 50 <span>/ CURRENT ROTATION</span></h2></div>
-          {latest ? <div className="section-meta"><span className={`media-status media-${latest.mediaStatus ?? "complete"}`}>{mediaStatusLabel(latest.mediaStatus)}</span><span className="last-fetch">LAST FETCH <strong>{formatRelativeDate(latest.fetchedAt)}</strong></span></div> : null}
+          {latest ? <div className="section-meta"><span className={`media-status media-${latest.mediaStatus ?? "complete"}`}>{mediaStatusLabel(latest.mediaStatus)}</span>{latest.mediaStatus === "failed" ? <Button className="media-retry-button" variant="danger" size="sm" onClick={retryMedia} disabled={action !== "idle"}><RefreshCw className={action === "retrying" ? "spin" : undefined} size={13} />{action === "retrying" ? "重试中…" : "重试媒体"}</Button> : null}<span className="last-fetch">LAST FETCH <strong>{formatRelativeDate(latest.fetchedAt)}</strong></span></div> : null}
         </div>
         {latest ? (
           <>
@@ -215,7 +249,7 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
       <footer className="footer"><span>ARCAEA B50 STUDIO</span><span>LOWIRO DATA PIPELINE · {data.scheduler.timezone}</span><span>LOCAL ARCHIVE / R2 MEDIA</span></footer>
 
       <Dialog open={logOpen} onOpenChange={setLogOpen}>
-        <DialogContent><DialogTitle>{error ? "事务未完成" : "B50 已获取"}</DialogTitle><DialogDescription>{error || message}</DialogDescription><div className={error ? "dialog-result error" : "dialog-result success"}>{error ? <RefreshCw size={18} /> : <Check size={18} />}<span>{error || message}</span></div></DialogContent>
+        <DialogContent><DialogTitle>{error ? "事务未完成" : lastAction === "retry" ? "MEDIA PROCESS 重试" : "B50 已获取"}</DialogTitle><DialogDescription>{error || message}</DialogDescription><div className={error ? "dialog-result error" : "dialog-result success"}>{error ? <RefreshCw size={18} /> : <Check size={18} />}<span>{error || message}</span></div></DialogContent>
       </Dialog>
     </main>
   );
