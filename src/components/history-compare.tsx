@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 
 const labels: Record<ComparedField, string> = {
   score: "分数", rating: "单曲 PTT", perfectCount: "PURE", nearCount: "FAR",
-  missCount: "LOST", clearType: "通关状态", modifier: "Modifier", timePlayed: "游玩时间",
+  missCount: "LOST", clearType: "通关状态", modifier: "血条标记", timePlayed: "游玩时间",
 };
 const kinds = { added: "新增", removed: "移出", changed: "变化", unchanged: "未变化" };
 const timestamp = (value: string | number) => new Intl.DateTimeFormat("zh-CN", {
@@ -20,6 +20,7 @@ const delta = (value: number, digits = 0) => {
   return `${rounded > 0 ? "+" : ""}${rounded.toFixed(digits)}`;
 };
 function fieldValue(field: ComparedField, value: number) {
+  if (field === "modifier") return ({ 0: "NORMAL", 1: "EASY", 2: "HARD" } as Record<number, string>)[value] ?? `未知 (${value})`;
   if (field === "timePlayed") return timestamp(value);
   if (field === "clearType") return clearTypeLabel(value);
   if (field === "rating") return value.toFixed(3);
@@ -54,7 +55,7 @@ export function HistoryCompare({ snapshots }: { snapshots: B50Snapshot[] }) {
         <div className="compare-rows">{rows.filter((row) => showUnchanged || row.kind !== "unchanged").map((row) => {
           const score = (row.after || row.before)!.score;
           return <article className={`compare-row compare-${row.kind}`} key={row.key}>
-            <div className="compare-row-title"><span className="compare-kind">{kinds[row.kind]}</span><strong>{score.title.en || score.title.ja || score.title.zh || score.songId}</strong><span>{difficultyLabel(score.difficulty)}{score.modifier ? ` · MOD ${score.modifier}` : ""}</span></div>
+            <div className="compare-row-title"><span className="compare-kind">{kinds[row.kind]}</span><strong>{score.title.en || score.title.ja || score.title.zh || score.songId}</strong><span>{difficultyLabel(score.difficulty)}</span></div>
             <div className="compare-values">
               <span>排名：{row.before ? `#${row.before.rank}` : "—"} → {row.after ? `#${row.after.rank}` : "—"}</span>
               {row.before && row.after ? row.fields.map((field) => <span key={field}>{labels[field]}：{fieldValue(field, row.before!.score[field])} → {fieldValue(field, row.after!.score[field])}{field === "score" || field === "rating" ? ` (${delta(row.after!.score[field] - row.before!.score[field], field === "rating" ? 3 : 0)})` : ""}</span>) : <><span>分数：{row.before ? fieldValue("score", score.score) : "—"} → {row.after ? fieldValue("score", score.score) : "—"}</span><span>单曲 PTT：{row.before ? score.rating.toFixed(3) : "—"} → {row.after ? score.rating.toFixed(3) : "—"}</span></>}

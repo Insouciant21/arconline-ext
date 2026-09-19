@@ -5,7 +5,7 @@ export type ComparedField = (typeof comparedFields)[number];
 
 export function compareSnapshots(before: B50Snapshot, after: B50Snapshot) {
   const index = (scores: Best50Score[]) => new Map(scores.map((score, i) => [
-    `${score.songId}:${score.difficulty}:${score.modifier}`, { score, rank: i + 1 },
+    `${score.songId}:${score.difficulty}`, { score, rank: i + 1 },
   ]));
   const left = index(before.best50);
   const right = index(after.best50);
