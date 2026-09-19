@@ -3,11 +3,13 @@
 import * as React from "react";
 import { Archive, ArrowLeft, Database, History as HistoryIcon } from "lucide-react";
 import { ScoreCard } from "@/components/score-card";
+import { HistoryCompare } from "@/components/history-compare";
 import { SignOutButton } from "@/components/sign-out-button";
 import type { B50Snapshot, HistoryPayload } from "@/lib/types";
 import { formatRelativeDate } from "@/lib/utils";
 
 export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
+  const [comparing, setComparing] = React.useState(false);
   const [selectedId, setSelectedId] = React.useState(initialData.snapshots[0]?.id || "");
   const selected = initialData.snapshots.find((snapshot) => snapshot.id === selectedId) || initialData.snapshots[0];
 
@@ -53,7 +55,12 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
         </div>
       </section>
 
-      {selected ? (
+      <div className="history-view-tabs" aria-label="历史查看模式">
+        <button type="button" aria-pressed={!comparing} onClick={() => setComparing(false)}>历史详情</button>
+        <button type="button" aria-pressed={comparing} onClick={() => setComparing(true)}>对比两次历史</button>
+      </div>
+
+      {comparing ? <HistoryCompare snapshots={initialData.snapshots} /> : selected ? (
         <section className="history-layout">
           <aside className="history-index" aria-label="历史快照列表">
             <div className="history-index-heading">
