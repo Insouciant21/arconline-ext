@@ -67,16 +67,19 @@ export function formatJoinDate(value: number) {
   return year && month && day ? `${year}/${month}/${day}` : "—";
 }
 
-export function difficultyLabel(difficulty: number) {
-  return ["Past", "Present", "Future", "Beyond", "Eternal", "Inscribed"][difficulty] ?? `D${difficulty}`;
+export function difficultyLabel(difficulty: number, alias?: number) {
+  if (difficulty === 3 && alias === 1) return "Inscribed";
+  return ["Past", "Present", "Future", "Beyond", "Eternal"][difficulty] ?? `D${difficulty}`;
 }
 
-export function difficultyTone(difficulty: number) {
-  return ["past", "present", "future", "beyond", "eternal", "inscribed"][difficulty] ?? "future";
+export function difficultyTone(difficulty: number, alias?: number) {
+  if (difficulty === 3 && alias === 1) return "inscribed";
+  return ["past", "present", "future", "beyond", "eternal"][difficulty] ?? "future";
 }
 
-export function difficultyCode(difficulty: number) {
-  return ["PST", "PRS", "FTR", "BYD", "ETR", "INS"][difficulty] ?? `D${difficulty}`;
+export function difficultyCode(difficulty: number, alias?: number) {
+  if (difficulty === 3 && alias === 1) return "INS";
+  return ["PST", "PRS", "FTR", "BYD", "ETR"][difficulty] ?? `D${difficulty}`;
 }
 
 export function clearTypeLabel(clearType: number) {

@@ -15,8 +15,11 @@ export function PttChart({ points }: { points: PotentialHistoryPoint[] }) {
   const domainMin = Math.floor((min - range * 0.15) * 10) / 10;
   const domainMax = Math.ceil((max + range * 0.15) * 10) / 10;
   const domainRange = Math.max(domainMax - domainMin, 0.2);
+  const times = points.map((point) => Date.parse(`${point.date}T00:00:00+08:00`));
+  const firstTime = times.length ? Math.min(...times) : 0;
+  const timeRange = times.length ? Math.max(...times) - firstTime : 0;
   const pointsForPlot = points.map((point, index) => {
-    const x = points.length === 1 ? padding.left + plotWidth / 2 : padding.left + (index / (points.length - 1)) * plotWidth;
+    const x = timeRange === 0 ? padding.left + plotWidth / 2 : padding.left + ((times[index] - firstTime) / timeRange) * plotWidth;
     const y = padding.top + ((domainMax - point.potential) / domainRange) * plotHeight;
     return { ...point, x, y };
   });
@@ -55,7 +58,7 @@ export function PttChart({ points }: { points: PotentialHistoryPoint[] }) {
           </g>
         ))}
       </svg>
-      {!points.length ? <div className="chart-empty">每日 23:59:59 的快照会出现在这里</div> : null}
+      {!points.length ? <div className="chart-empty">同步官网历史或获取 B50 后显示潜力值走势</div> : null}
     </div>
   );
 }

@@ -92,6 +92,22 @@ export class ArcaeaClient {
     return scores.map(normalizeScore).sort((a, b) => b.rating - a.rating).slice(0, 50);
   }
 
+  async getPotentialHistory() {
+    const payload = await this.request<ApiEnvelope>("/webapi/score/rating_progression/me?duration=5y");
+    if (!Array.isArray(payload.value)) {
+      throw new AppError("官网历史潜力值响应异常。", 502, "ARCAEA_HISTORY_INVALID");
+    }
+    return payload.value.map((value) => {
+      const raw = asRecord(value);
+      if (typeof raw.time_played !== "number" || !Number.isFinite(raw.time_played) ||
+          !Number.isFinite(new Date(raw.time_played).getTime()) || typeof raw.user_rating !== "number" ||
+          !Number.isFinite(raw.user_rating) || raw.user_rating < 0) {
+        throw new AppError("官网历史潜力值数据无效。", 502, "ARCAEA_HISTORY_INVALID");
+      }
+      return { timePlayed: raw.time_played, potential: raw.user_rating / 1000 };
+    });
+  }
+
   async getOnlineImage() {
     const payload = await this.request<ApiEnvelope>("/webapi/user/me/online_image");
     const raw = asRecord(payload.value);
@@ -208,6 +224,7 @@ function normalizeScore(rawValue: unknown): Best50Score {
   return {
     songId: asString(raw.song_id),
     difficulty: asNumber(raw.difficulty),
+    ...(asOptionalInteger(raw.difficulty_alias) !== undefined ? { difficultyAlias: asOptionalInteger(raw.difficulty_alias) } : {}),
     modifier: asNumber(raw.modifier),
     rating: asNumber(raw.rating),
     score: asNumber(raw.score),
