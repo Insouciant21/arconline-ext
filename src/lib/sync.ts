@@ -56,7 +56,7 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
       requireR2();
       const client = await ArcaeaClient.login();
       const remote = await client.fetchB50Snapshot();
-      await importOfficialHistory(client).catch((error) => console.error("[sync] official history import failed", error));
+      await importOfficialHistory(client, remote.best50).catch((error) => console.error("[sync] official history import failed", error));
       const previous = await readLatest();
       const [chartImageMap, characterImageMap] = await Promise.all([
         readChartImageMap(),

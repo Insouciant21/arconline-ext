@@ -6,6 +6,7 @@ import { AppError } from "./errors";
 import { publicAssetUrl } from "./r2";
 import type {
   B50Snapshot,
+  Best50Score,
   CharacterImageCache,
   CharacterImageCacheEntry,
   ChartImageCache,
@@ -23,6 +24,7 @@ const paths = {
   pttHistoryCsv: path.join(config.dataDir, "ptt-history.csv"),
   chartImages: path.join(config.dataDir, "chart-images.json"),
   characterImages: path.join(config.dataDir, "character-images.json"),
+  chartAliases: path.join(config.dataDir, "chart-aliases.json"),
   logs: path.join(config.dataDir, "logs.json"),
 };
 
@@ -55,6 +57,31 @@ export async function atomicWrite(filePath: string, content: string) {
 export async function readLatest() {
   await ensureDataStore();
   return readJson<B50Snapshot | null>(paths.latest, null);
+}
+
+// Chart labels are metadata, not new plays. Cache them independently so older
+// snapshots can display aliases even when an identical B50 is not recorded.
+export async function mergeChartAliases(scores: Best50Score[]) {
+  await withFileLock("chart-aliases", async () => {
+    const current = await readJson<Record<string, number>>(paths.chartAliases, {});
+    for (const score of scores) {
+      if (score.difficultyAlias !== undefined) {
+        current[`${score.songId}:${score.difficulty}`] = score.difficultyAlias;
+      }
+    }
+    await atomicWrite(paths.chartAliases, `${JSON.stringify(current, null, 2)}\n`);
+  });
+}
+
+export async function enrichSnapshotAliases(snapshots: B50Snapshot[]) {
+  const aliases = await readJson<Record<string, number>>(paths.chartAliases, {});
+  return snapshots.map((snapshot) => ({
+    ...snapshot,
+    best50: snapshot.best50.map((score) => {
+      const alias = score.difficultyAlias ?? aliases[`${score.songId}:${score.difficulty}`];
+      return alias === undefined ? score : { ...score, difficultyAlias: alias };
+    }),
+  }));
 }
 
 export async function readB50History() {
