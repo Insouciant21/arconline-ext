@@ -1,5 +1,5 @@
 import { isR2Configured } from "./config";
-import { readB50History } from "./file-store";
+import { enrichSnapshotAliases, readB50History } from "./file-store";
 import { readSnapshotBackups } from "./r2";
 import type { B50Snapshot, HistoryPayload } from "./types";
 
@@ -8,7 +8,7 @@ export async function getHistoryPayload(): Promise<HistoryPayload> {
     readB50History(),
     readSnapshotBackups(),
   ]);
-  const snapshots = mergeSnapshots(localSnapshots, remoteResult.snapshots);
+  const snapshots = await enrichSnapshotAliases(mergeSnapshots(localSnapshots, remoteResult.snapshots));
 
   return {
     snapshots,

@@ -1,5 +1,5 @@
 import { config } from "./config";
-import { readLatest, readPttHistory } from "./file-store";
+import { enrichSnapshotAliases, readLatest, readPttHistory } from "./file-store";
 import type { DashboardPayload } from "./types";
 
 export async function getDashboardPayload(): Promise<DashboardPayload> {
@@ -8,7 +8,7 @@ export async function getDashboardPayload(): Promise<DashboardPayload> {
     readPttHistory(),
   ]);
   return {
-    latest,
+    latest: latest ? (await enrichSnapshotAliases([latest]))[0] : null,
     history,
     scheduler: {
       timezone: config.timezone,
