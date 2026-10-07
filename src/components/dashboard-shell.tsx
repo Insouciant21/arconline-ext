@@ -256,7 +256,7 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
                 ))}
               </div>
             </div>
-            <PttChart points={chartPoints} />
+            <PttChart key={chartRange} points={chartPoints} />
           </CardContent>
         </Card>
       </section>
