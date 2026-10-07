@@ -6,6 +6,7 @@ export interface LocalizedTitle {
 }
 
 export interface Best50Score {
+  difficultyAlias?: number;
   songId: string;
   difficulty: number;
   modifier: number;
@@ -81,6 +82,7 @@ export interface B50Snapshot {
 }
 
 export interface PotentialHistoryPoint {
+  source?: "lowiro";
   date: string;
   potential: number;
   snapshotId: string;

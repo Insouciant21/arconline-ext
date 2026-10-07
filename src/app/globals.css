@@ -293,7 +293,7 @@ input:focus-visible {
 .difficulty-future { color: #fff; background: var(--future); }
 .difficulty-beyond { color: #fff; background: var(--red); }
 .difficulty-eternal { color: #fff; background: var(--lavender); }
-.difficulty-inscribed { color: var(--ink); background: #d8ad68; }
+.difficulty-inscribed { color: #fff; background: #4543c0; }
 .art-placeholder { position: absolute; top: 50%; right: 0; left: 0; z-index: 1; color: rgba(52, 51, 62, .42); text-align: center; font-size: 10px; letter-spacing: .2em; transform: translateY(-50%); }
 
 .score-card-body { min-width: 0; padding: 14px 13px 12px; }

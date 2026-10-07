@@ -20,7 +20,7 @@ export function ScoreCard({ score, rank }: { score: Best50Score; rank: number })
         <div className="score-potential">
           <span className="score-label">CHART CONSTANT</span>
           <strong>{chartConstantFromScore(score).toFixed(1)}</strong>
-          <DifficultyDiamond difficulty={score.difficulty} />
+          <DifficultyDiamond difficulty={score.difficulty} alias={score.difficultyAlias} />
         </div>
 
         <div className="score-art">
@@ -72,10 +72,10 @@ export function ScoreCard({ score, rank }: { score: Best50Score; rank: number })
   );
 }
 
-function DifficultyDiamond({ difficulty }: { difficulty: number }) {
+function DifficultyDiamond({ difficulty, alias }: { difficulty: number; alias?: number }) {
   return (
-    <span className={`difficulty-diamond difficulty-${difficultyTone(difficulty)}`}>
-      <span>{difficultyCode(difficulty)}</span>
+    <span className={`difficulty-diamond difficulty-${difficultyTone(difficulty, alias)}`}>
+      <span>{difficultyCode(difficulty, alias)}</span>
     </span>
   );
 }

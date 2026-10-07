@@ -55,7 +55,7 @@ export function HistoryCompare({ snapshots }: { snapshots: B50Snapshot[] }) {
         <div className="compare-rows">{rows.filter((row) => showUnchanged || row.kind !== "unchanged").map((row) => {
           const score = (row.after || row.before)!.score;
           return <article className={`compare-row compare-${row.kind}`} key={row.key}>
-            <div className="compare-row-title"><span className="compare-kind">{kinds[row.kind]}</span><strong>{score.title.en || score.title.ja || score.title.zh || score.songId}</strong><span>{difficultyLabel(score.difficulty)}</span></div>
+            <div className="compare-row-title"><span className="compare-kind">{kinds[row.kind]}</span><strong>{score.title.en || score.title.ja || score.title.zh || score.songId}</strong><span>{difficultyLabel(score.difficulty, score.difficultyAlias)}</span></div>
             <div className="compare-values">
               <span>排名：{row.before ? `#${row.before.rank}` : "—"} → {row.after ? `#${row.after.rank}` : "—"}</span>
               {row.before && row.after ? row.fields.map((field) => <span key={field}>{labels[field]}：{fieldValue(field, row.before!.score[field])} → {fieldValue(field, row.after!.score[field])}{field === "score" || field === "rating" ? ` (${delta(row.after!.score[field] - row.before!.score[field], field === "rating" ? 3 : 0)})` : ""}</span>) : <><span>分数：{row.before ? fieldValue("score", score.score) : "—"} → {row.after ? fieldValue("score", score.score) : "—"}</span><span>单曲 PTT：{row.before ? score.rating.toFixed(3) : "—"} → {row.after ? score.rating.toFixed(3) : "—"}</span></>}

@@ -19,6 +19,7 @@ const paths = {
   b50History: path.join(config.dataDir, "b50-history.json"),
   b50HistoryCsv: path.join(config.dataDir, "b50-history.csv"),
   pttHistory: path.join(config.dataDir, "ptt-history.json"),
+  officialPttHistory: path.join(config.dataDir, "official-ptt-history.json"),
   pttHistoryCsv: path.join(config.dataDir, "ptt-history.csv"),
   chartImages: path.join(config.dataDir, "chart-images.json"),
   characterImages: path.join(config.dataDir, "character-images.json"),
@@ -63,11 +64,26 @@ export async function readB50History() {
 
 export async function readPttHistory() {
   await ensureDataStore();
-  const [stored, snapshots] = await Promise.all([
+  const [stored, snapshots, official] = await Promise.all([
     readJson<PotentialHistoryPoint[]>(paths.pttHistory, []),
     readJson<B50Snapshot[]>(paths.b50History, []),
+    readJson<PotentialHistoryPoint[]>(paths.officialPttHistory, []),
   ]);
-  return aggregateDailyPttHistory(snapshots, stored);
+  return aggregateDailyPttHistory(snapshots, [...official, ...stored]);
+}
+
+export async function mergeOfficialPttHistory(points: Array<{ timePlayed: number; potential: number }>) {
+  return withFileLock("official-ptt-history", async () => {
+    const current = await readJson<PotentialHistoryPoint[]>(paths.officialPttHistory, []);
+    const byTime = new Map(current.map((point) => [point.fetchedAt, point]));
+    for (const point of points) {
+      const fetchedAt = new Date(point.timePlayed).toISOString();
+      byTime.set(fetchedAt, { date: getLocalDate(fetchedAt), fetchedAt, potential: point.potential, snapshotId: "", source: "lowiro" });
+    }
+    const next = [...byTime.values()].sort((a, b) => a.fetchedAt.localeCompare(b.fetchedAt));
+    await atomicWrite(paths.officialPttHistory, `${JSON.stringify(next, null, 2)}\n`);
+    return { received: points.length, total: next.length };
+  });
 }
 
 export async function readLogs(limit = 200) {
@@ -193,14 +209,14 @@ function aggregateDailyPttHistory(
   snapshots: B50Snapshot[],
   existing: PotentialHistoryPoint[],
 ) {
-  const highestByDate = new Map(existing.map((point) => [point.date, point]));
-  for (const snapshot of snapshots) {
-    const point: PotentialHistoryPoint = {
+  const highestByDate = new Map<string, PotentialHistoryPoint>();
+  const fromSnapshots: PotentialHistoryPoint[] = snapshots.map((snapshot) => ({
       date: getLocalDate(snapshot.fetchedAt),
       potential: snapshot.potential,
       snapshotId: snapshot.id,
       fetchedAt: snapshot.fetchedAt,
-    };
+    }));
+  for (const point of [...existing, ...fromSnapshots]) {
     const previous = highestByDate.get(point.date);
     if (
       !previous ||

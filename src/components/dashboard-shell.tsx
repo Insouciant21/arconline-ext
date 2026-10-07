@@ -24,7 +24,7 @@ import {
 import type { DashboardPayload } from "@/lib/types";
 import { formatJoinDate, formatRelativeDate } from "@/lib/utils";
 
-type ActionState = "idle" | "syncing" | "retrying";
+type ActionState = "idle" | "syncing" | "retrying" | "importing";
 type ChartRange = (typeof chartRanges)[number]["label"];
 
 const chartRanges = [
@@ -40,7 +40,7 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
   const [action, setAction] = React.useState<ActionState>("idle");
   const [message, setMessage] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
-  const [lastAction, setLastAction] = React.useState<"sync" | "retry">("sync");
+  const [lastAction, setLastAction] = React.useState<"sync" | "retry" | "import">("sync");
   const [logOpen, setLogOpen] = React.useState(false);
   const [chartRange, setChartRange] = React.useState<ChartRange>("1Y");
 
@@ -108,6 +108,21 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
   }
 
   const latest = data.latest;
+  async function importHistory() {
+    setAction("importing");
+    setLastAction("import");
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/history/import", { method: "POST" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "历史同步失败");
+      await refresh();
+      setMessage(payload.message);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "历史同步失败");
+    } finally { setAction("idle"); setLogOpen(true); }
+  }
   const top10 = latest?.best50.slice(0, 10).reduce((sum, score) => sum + score.rating, 0) || 0;
   const rest40 = latest?.best50.slice(10).reduce((sum, score) => sum + score.rating, 0) || 0;
   const selectedRange = chartRanges.find((range) => range.label === chartRange);
@@ -115,7 +130,7 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
     if (!selectedRange || !data.history.length) return [];
     const cutoff = Date.now() - selectedRange.days * 24 * 60 * 60 * 1000;
     const filtered = data.history.filter((point) => {
-      const timestamp = Date.parse(`${point.date}T23:59:59`);
+      const timestamp = Date.parse(`${point.date}T23:59:59+08:00`);
       return Number.isNaN(timestamp) || timestamp >= cutoff;
     });
     return filtered.length ? filtered : data.history.slice(-1);
@@ -220,12 +235,12 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
         <div className="hexagon-title"><span>POTENTIAL / 潜力值</span></div>
         <Card className="chart-panel">
           <CardHeader className="section-header">
-            <div><p className="section-kicker">LONGITUDINAL VIEW</p><CardTitle>潜力值折线</CardTitle><CardDescription>每日末尾快照 · B50 v7 weighted average</CardDescription></div>
+            <div><p className="section-kicker">LONGITUDINAL VIEW</p><CardTitle>潜力值折线</CardTitle><CardDescription>官网历史与本地快照 · 每日最高潜力值</CardDescription></div>
             <Badge><Activity size={12} /> {data.history.length ? "TRACKING" : "READY"}</Badge>
           </CardHeader>
           <CardContent>
             <div className="chart-toolbar">
-              <span className="chart-toolbar-label">VIEW RANGE</span>
+              <Button size="sm" variant="secondary" onClick={importHistory} disabled={action !== "idle"}>{action === "importing" ? <Loader2 className="spin" size={13} /> : <CloudDownload size={13} />}{action === "importing" ? "同步中…" : "同步官网历史"}</Button>
               <div className="range-tabs" role="tablist" aria-label="折线图时间范围">
                 {chartRanges.map((range) => (
                   <button
@@ -249,7 +264,7 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
       <footer className="footer"><span>ARCAEA B50 STUDIO</span><span>LOWIRO DATA PIPELINE · {data.scheduler.timezone}</span><span>LOCAL ARCHIVE / R2 MEDIA</span></footer>
 
       <Dialog open={logOpen} onOpenChange={setLogOpen}>
-        <DialogContent><DialogTitle>{error ? "事务未完成" : lastAction === "retry" ? "MEDIA PROCESS 重试" : "B50 已获取"}</DialogTitle><DialogDescription>{error || message}</DialogDescription><div className={error ? "dialog-result error" : "dialog-result success"}>{error ? <RefreshCw size={18} /> : <Check size={18} />}<span>{error || message}</span></div></DialogContent>
+        <DialogContent><DialogTitle>{error ? "事务未完成" : lastAction === "import" ? "官网历史已同步" : lastAction === "retry" ? "MEDIA PROCESS 重试" : "B50 已获取"}</DialogTitle><DialogDescription>{error || message}</DialogDescription><div className={error ? "dialog-result error" : "dialog-result success"}>{error ? <RefreshCw size={18} /> : <Check size={18} />}<span>{error || message}</span></div></DialogContent>
       </Dialog>
     </main>
   );
