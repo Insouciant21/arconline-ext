@@ -39,17 +39,19 @@ export function chartConstantFromScore(score: { score: number; rating: number; c
 export function formatRelativeDate(value: string | number) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  const currentYear = new Date().getFullYear();
-  const options: Intl.DateTimeFormatOptions = {
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    ...(date.getFullYear() !== currentYear ? { year: "numeric" } : {}),
-  };
-  return new Intl.DateTimeFormat("zh-CN", {
-    ...options,
-  }).format(date);
+    hourCycle: "h23",
+  });
+  const parts = Object.fromEntries(formatter.formatToParts(date).map(({ type, value }) => [type, value]));
+  const currentYear = formatter.formatToParts(new Date()).find((part) => part.type === "year")?.value;
+  const year = parts.year === currentYear ? "" : `${parts.year}/`;
+  return `${year}${parts.month}/${parts.day} ${parts.hour}:${parts.minute}`;
 }
 
 export function formatJoinDate(value: number) {
