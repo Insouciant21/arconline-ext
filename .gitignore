@@ -13,3 +13,11 @@ coverage/
 .env.*.local
 data/
 exports/
+
+.astro/
+dist/
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.migration/

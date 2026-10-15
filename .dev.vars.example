@@ -1,0 +1,5 @@
+# Local Workers development only. Production values use wrangler secret.
+ADMIN_TOKEN=replace-with-a-long-random-token
+USERNAME=your-account-email
+PASSWD=your-password
+DAILY_SYNC_ENABLED=false

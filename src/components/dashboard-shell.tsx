@@ -21,7 +21,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { DashboardPayload } from "@/lib/types";
+import type { DashboardPayload, JobView } from "@/lib/types";
 import { formatJoinDate, formatRelativeDate } from "@/lib/utils";
 
 type ActionState = "idle" | "syncing" | "retrying" | "importing";
@@ -44,85 +44,54 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
   const [logOpen, setLogOpen] = React.useState(false);
   const [chartRange, setChartRange] = React.useState<ChartRange>("1Y");
 
-  const refresh = React.useCallback(async () => {
-    const response = await fetch("/api/dashboard", { cache: "no-store" });
-    const payload = (await response.json()) as DashboardPayload;
-    if (!response.ok) throw new Error((payload as unknown as { error?: string }).error || "读取面板失败");
-    setData(payload);
-  }, []);
-
-  async function startSync() {
-    setAction("syncing");
-    setLastAction("sync");
-    setMessage(null);
-    setError(null);
-    try {
-      const response = await fetch("/api/sync", { method: "POST" });
-      const payload = (await response.json()) as {
-        message?: string;
-        error?: string;
-        snapshot?: NonNullable<DashboardPayload["latest"]>;
-      };
-      if (!response.ok) throw new Error(payload.error || "同步失败");
-      if (payload.snapshot) {
-        setData((current) => ({ ...current, latest: payload.snapshot! }));
-      } else {
-        await refresh();
-      }
-      setMessage(payload.message || "同步完成");
-      setLogOpen(true);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "同步失败");
-      setLogOpen(true);
-    } finally {
-      setAction("idle");
-    }
-  }
-
-  async function retryMedia() {
-    setAction("retrying");
-    setLastAction("retry");
-    setMessage(null);
-    setError(null);
-    try {
-      const response = await fetch("/api/media/retry", { method: "POST" });
-      const payload = (await response.json()) as {
-        message?: string;
-        error?: string;
-        snapshot?: NonNullable<DashboardPayload["latest"]>;
-      };
-      if (!response.ok) throw new Error(payload.error || "媒体重试失败");
-      if (payload.snapshot) {
-        setData((current) => ({ ...current, latest: payload.snapshot! }));
-      } else {
-        await refresh();
-      }
-      setMessage(payload.message || "媒体处理已开始重试");
-      setLogOpen(true);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "媒体重试失败");
-      setLogOpen(true);
-    } finally {
-      setAction("idle");
-    }
-  }
-
+  const [jobId, setJobId] = React.useState<string | null>(initialData.activeJob?.id || null);
+  const [job, setJob] = React.useState<JobView | null>(initialData.activeJob);
   const latest = data.latest;
-  async function importHistory() {
-    setAction("importing");
-    setLastAction("import");
-    setError(null);
-    setMessage(null);
+  async function submit(path: string, kind: "sync" | "retry" | "import") {
+    setAction(kind === "sync" ? "syncing" : kind === "retry" ? "retrying" : "importing");
+    setLastAction(kind); setError(null); setMessage(null);
     try {
-      const response = await fetch("/api/history/import", { method: "POST" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "历史同步失败");
-      await refresh();
-      setMessage(payload.message);
+      const response = await fetch(path, { method: "POST" });
+      const payload = await response.json() as { jobId: string; error?: string };
+      if (!response.ok) throw new Error(payload.error || "提交任务失败");
+      setJobId(payload.jobId);
+      setJob({ id: payload.jobId, kind, status: "queued", stage: "fetch", progress: { completed: 0, total: 0 }, createdAt: "", updatedAt: "" });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "历史同步失败");
-    } finally { setAction("idle"); setLogOpen(true); }
+      setError(caught instanceof Error ? caught.message : "提交任务失败");
+      setLogOpen(true); setAction("idle");
+    }
   }
+  const startSync = () => submit("/api/sync", "sync");
+  const retryMedia = () => submit("/api/media/retry", "retry");
+  const importHistory = () => submit("/api/history/import", "import");
+  const retryFailedJob = () => job && submit(`/api/jobs/${job.id}/retry`, job.kind);
+  React.useEffect(() => {
+    if (!jobId) return;
+    let disposed = false, timer: ReturnType<typeof setTimeout>;
+    async function poll() {
+      try {
+        const [jobResponse, dashboardResponse] = await Promise.all([
+          fetch(`/api/jobs/${jobId}`, { cache: "no-store" }), fetch("/api/dashboard", { cache: "no-store" }),
+        ]);
+        if (jobResponse.status === 401) { window.location.assign("/login"); return; }
+        if (!jobResponse.ok || !dashboardResponse.ok) throw new Error("暂时无法读取任务状态，正在重试…");
+        const currentJob = await jobResponse.json() as JobView;
+        const dashboard = await dashboardResponse.json() as DashboardPayload;
+        if (disposed) return;
+        setJob(currentJob); setData(dashboard); setError(null);
+        if (currentJob.status === "succeeded" || currentJob.status === "failed") {
+          setJobId(null); setAction("idle");
+          if (currentJob.result?.snapshot) setData({ ...dashboard, latest: currentJob.result.snapshot });
+          setMessage(currentJob.result?.message || null); setError(currentJob.error || null); setLogOpen(true);
+          return;
+        }
+        setAction(currentJob.kind === "sync" ? "syncing" : currentJob.kind === "retry" ? "retrying" : "importing");
+      } catch (caught) { if (!disposed) setError(caught instanceof Error ? caught.message : "正在重试读取任务状态…"); }
+      if (!disposed) timer = setTimeout(poll, 2000);
+    }
+    void poll();
+    return () => { disposed = true; clearTimeout(timer); };
+  }, [jobId]);
   const top10 = latest?.best50.slice(0, 10).reduce((sum, score) => sum + score.rating, 0) || 0;
   const rest40 = latest?.best50.slice(10).reduce((sum, score) => sum + score.rating, 0) || 0;
   const selectedRange = chartRanges.find((range) => range.label === chartRange);
@@ -135,32 +104,6 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
     });
     return filtered.length ? filtered : data.history.slice(-1);
   }, [data.history, selectedRange]);
-
-  const latestSnapshotId = latest?.id;
-  const latestMediaStatus = latest?.mediaStatus;
-  React.useEffect(() => {
-    if (!latestSnapshotId || latestMediaStatus !== "processing") {
-      return;
-    }
-
-    let disposed = false;
-    const interval = window.setInterval(() => {
-      void (async () => {
-        try {
-          const response = await fetch("/api/dashboard", { cache: "no-store" });
-          if (!response.ok || disposed) return;
-          const payload = (await response.json()) as DashboardPayload;
-          if (!disposed) setData(payload);
-        } catch {
-          // The next poll will retry while the background media job is active.
-        }
-      })();
-    }, 2000);
-    return () => {
-      disposed = true;
-      window.clearInterval(interval);
-    };
-  }, [latestMediaStatus, latestSnapshotId]);
 
   return (
     <main className="app-shell">
@@ -218,6 +161,12 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
         </div>
       </section>
 
+      {job ? <div className="job-status" role="status">
+        <span>{job.status === "queued" ? "等待处理" : job.status === "running" ? "正在同步" : job.status === "failed" ? "同步失败" : "同步完成"} · {({ fetch: "获取数据", history: "官网历史", media: "媒体处理", archive: "归档备份", done: "完成" } as Record<string, string>)[job.stage] || job.stage}
+          {job.progress.total > 0 ? ` · ${job.progress.completed}/${job.progress.total}` : ""}</span>
+        {job.status === "failed" ? <Button size="sm" onClick={retryFailedJob} disabled={action !== "idle"}>重试任务</Button> : null}
+        {error ? <span>{error}</span> : null}
+      </div> : null}
       <section className="section-block" id="b50">
         <div className="section-heading-row">
           <div><p className="section-kicker">RANKED PERFORMANCE</p><h2>BEST 50 <span>/ CURRENT ROTATION</span></h2></div>
@@ -261,7 +210,7 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
         </Card>
       </section>
 
-      <footer className="footer"><span>ARCAEA B50 STUDIO</span><span>LOWIRO DATA PIPELINE · {data.scheduler.timezone}</span><span>LOCAL ARCHIVE / R2 MEDIA</span></footer>
+      <footer className="footer"><span>ARCAEA B50 STUDIO</span><span>LOWIRO DATA PIPELINE · {data.scheduler.timezone}</span><span>D1 ARCHIVE / R2 MEDIA</span></footer>
 
       <Dialog open={logOpen} onOpenChange={setLogOpen}>
         <DialogContent><DialogTitle>{error ? "事务未完成" : lastAction === "import" ? "官网历史已同步" : lastAction === "retry" ? "MEDIA PROCESS 重试" : "B50 已获取"}</DialogTitle><DialogDescription>{error || message}</DialogDescription><div className={error ? "dialog-result error" : "dialog-result success"}>{error ? <RefreshCw size={18} /> : <Check size={18} />}<span>{error || message}</span></div></DialogContent>

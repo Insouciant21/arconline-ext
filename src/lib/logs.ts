@@ -1,6 +1,3 @@
-import { readLogs } from "./file-store";
-import type { LogsPayload } from "./types";
-
-export async function getLogsPayload(): Promise<LogsPayload> {
-  return { entries: await readLogs(500) };
-}
+import type { Env } from "./environment";
+import { Store } from "./store";
+export async function getLogsPayload(env: Env) { return { entries: await new Store(env).logs() }; }

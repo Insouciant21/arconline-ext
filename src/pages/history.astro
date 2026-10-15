@@ -1,0 +1,9 @@
+---
+import { env } from "cloudflare:workers";
+import type { Env } from "../lib/environment";
+import Layout from "../layouts/Layout.astro";
+import { HistoryShell } from "../components/history-shell";
+import { getHistoryPayload } from "../lib/history";
+const data = await getHistoryPayload(env as Env);
+---
+<Layout title="历史 · Arcaea B50 Studio"><HistoryShell initialData={data} client:load /></Layout>

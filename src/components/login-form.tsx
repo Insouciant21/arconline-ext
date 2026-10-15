@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import { KeyRound, Loader2, Sparkles } from "lucide-react";
-import { signIn } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 
 export function LoginForm({
@@ -26,18 +25,12 @@ export function LoginForm({
 
     setPending(true);
     try {
-      const result = await signIn("credentials", {
-        token: token.trim(),
-        redirect: false,
-        redirectTo: callbackUrl,
+      const response = await fetch("/api/auth/login", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: token.trim(), callbackUrl }),
       });
-      if (result?.error) {
-        setError("访问口令无效，请重试。");
-        return;
-      }
-      // Auth.js may return an absolute URL based on the container's bind
-      // address. The callback is already validated as an internal path, so
-      // resolve it against the origin the user is currently visiting.
+      const result = await response.json() as { error?: string };
+      if (!response.ok) { setError(result.error || "访问口令无效，请重试。"); return; }
       window.location.assign(new URL(callbackUrl, window.location.origin).toString());
     } catch {
       setError("登录服务暂时不可用，请稍后重试。");
@@ -86,7 +79,7 @@ export function LoginForm({
               {pending ? "验证中…" : "验证并进入"}
             </Button>
           </form>
-          <div className="auth-panel-foot"><span>SESSION GATE · AUTH.JS</span><span>LOWIRO DATA ARCHIVE</span></div>
+          <div className="auth-panel-foot"><span>PRIVATE SESSION</span><span>LOWIRO DATA ARCHIVE</span></div>
         </section>
         <p className="auth-hint">仅限已配置访问口令的管理会话 · 数据请求受登录状态保护</p>
       </section>

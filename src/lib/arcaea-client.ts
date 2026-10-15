@@ -1,5 +1,6 @@
 import { AppError } from "./errors";
-import { config, getArcaeaCredentials } from "./config";
+import { getConfig, getArcaeaCredentials } from "./config";
+import type { Env } from "./environment";
 import type { Best50Score, LocalizedTitle, StoredUser } from "./types";
 
 interface ArcaeaSession {
@@ -18,7 +19,7 @@ export interface RemoteSnapshotData {
   user: StoredUser;
   best50: Best50Score[];
   potentialImage: {
-    body: Buffer;
+    body: ArrayBuffer;
     contentType: string;
   };
 }
@@ -27,10 +28,11 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const ARCAEA_REQUEST_TIMEOUT_MS = 30_000;
 
 export class ArcaeaClient {
-  private constructor(private readonly session: ArcaeaSession) {}
+  private constructor(private readonly session: ArcaeaSession, private readonly config: ReturnType<typeof getConfig>) {}
 
-  static async login() {
-    const credentials = getArcaeaCredentials();
+  static async login(env: Env) {
+    const config = getConfig(env);
+    const credentials = getArcaeaCredentials(env);
     const response = await fetch(`${config.arcaeaApiBase}/auth/login`, {
       method: "POST",
       headers: {
@@ -42,7 +44,7 @@ export class ArcaeaClient {
       },
       body: JSON.stringify({ email: credentials.username, password: credentials.password }),
       signal: AbortSignal.timeout(ARCAEA_REQUEST_TIMEOUT_MS),
-      cache: "no-store",
+      redirect: "manual",
     });
 
     const payload = await parseJson<ApiEnvelope>(response);
@@ -55,7 +57,7 @@ export class ArcaeaClient {
       throw new AppError("Arcaea 登录成功但没有返回会话 Cookie。", 502, "ARCAEA_SESSION_MISSING");
     }
 
-    const client = new ArcaeaClient({ cookies });
+    const client = new ArcaeaClient({ cookies }, config);
     await client.getUser();
     return client;
   }
@@ -122,14 +124,14 @@ export class ArcaeaClient {
     if (!/^[a-f0-9]{32}$/i.test(bg)) {
       throw new AppError("曲绘标识格式不合法。", 502, "ARCAEA_BG_INVALID");
     }
-    return this.fetchImage(`${config.arcaeaAssetBase}/${bg}.jpg?v=323`, "chart");
+    return this.fetchImage(`${this.config.arcaeaAssetBase}/${bg}.jpg?v=323`, "chart");
   }
 
   async getCharacterIconImage(icon: string) {
     if (!/^[a-f0-9]{32}$/i.test(icon)) {
       throw new AppError("角色头像标识格式不合法。", 502, "ARCAEA_CHARACTER_ICON_INVALID");
     }
-    return this.fetchImage(`${config.arcaeaAssetBase}/chr/${icon}.png`, "character");
+    return this.fetchImage(`${this.config.arcaeaAssetBase}/chr/${icon}.png`, "character");
   }
 
   async fetchB50Snapshot() {
@@ -146,16 +148,16 @@ export class ArcaeaClient {
   }
 
   private async request<T extends ApiEnvelope>(path: string) {
-    const response = await fetch(`${config.arcaeaApiBase}${path}`, {
+    const response = await fetch(`${this.config.arcaeaApiBase}${path}`, {
       headers: {
         accept: "application/json",
         cookie: this.session.cookies,
-        origin: config.arcaeaWebBase,
-        referer: `${config.arcaeaWebBase}/zh/profile/potential`,
-        "user-agent": config.arcaeaUserAgent,
+        origin: this.config.arcaeaWebBase,
+        referer: `${this.config.arcaeaWebBase}/zh/profile/potential`,
+        "user-agent": this.config.arcaeaUserAgent,
       },
       signal: AbortSignal.timeout(ARCAEA_REQUEST_TIMEOUT_MS),
-      cache: "no-store",
+      redirect: "manual",
     });
     const payload = await parseJson<T>(response);
     if (!response.ok) {
@@ -180,17 +182,17 @@ export class ArcaeaClient {
         accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.8",
         cookie: this.session.cookies,
-        referer: `${config.arcaeaWebBase}/zh/profile/potential`,
+        referer: `${this.config.arcaeaWebBase}/zh/profile/potential`,
         "sec-ch-ua": '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
         "sec-ch-ua-mobile": "?1",
         "sec-ch-ua-platform": '"Android"',
         "sec-fetch-dest": "image",
         "sec-fetch-mode": "no-cors",
         "sec-fetch-site": "cross-site",
-        "user-agent": config.arcaeaUserAgent,
+        "user-agent": this.config.arcaeaUserAgent,
       },
       signal: AbortSignal.timeout(ARCAEA_REQUEST_TIMEOUT_MS),
-      cache: "no-store",
+      redirect: "manual",
     });
     if (!response.ok) {
       throw new AppError(
@@ -207,7 +209,24 @@ export class ArcaeaClient {
     if (contentLength > MAX_IMAGE_BYTES) {
       throw new AppError("图片超过允许的大小。", 502, "ARCAEA_IMAGE_TOO_LARGE");
     }
-    const body = Buffer.from(await response.arrayBuffer());
+    const reader = response.body?.getReader();
+    if (!reader) throw new AppError("图片响应为空。", 502, "ARCAEA_IMAGE_EMPTY");
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_IMAGE_BYTES) {
+        await reader.cancel();
+        throw new AppError("图片超过允许的大小。", 502, "ARCAEA_IMAGE_TOO_LARGE");
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    const body = bytes.buffer;
     if (body.byteLength > MAX_IMAGE_BYTES) {
       throw new AppError("图片超过允许的大小。", 502, "ARCAEA_IMAGE_TOO_LARGE");
     }
