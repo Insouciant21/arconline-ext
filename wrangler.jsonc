@@ -1,0 +1,70 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "arcaea-b50-studio",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-15",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist"
+  },
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "APP_ORIGIN": "https://arc.moeblue.top",
+    "R2_PUBLIC_URL": "https://arcaea-assets.moeblue.top",
+    "SCHEDULE_TIMEZONE": "Asia/Shanghai",
+    "DAILY_SYNC_ENABLED": "true",
+    "MUTATIONS_ENABLED": "true"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "arcaea-b50-studio",
+      "database_id": "149830b1-aaf6-4687-b77c-adb512dd5848",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ARCHIVE",
+      "bucket_name": "arcaea-assets"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "JOBS",
+        "queue": "arcaea-jobs"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "arcaea-jobs",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_concurrency": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "arcaea-jobs-failed"
+      }
+    ]
+  },
+  "triggers": {
+    "crons": [
+      "59 15 * * *",
+      "*/5 * * * *"
+    ]
+  },
+  "account_id": "1ae019b386ef6f4729670ebc50bb95b9",
+  "routes": [
+    {
+      "pattern": "arc.moeblue.top",
+      "zone_name": "moeblue.top",
+      "custom_domain": true
+    }
+  ]
+}

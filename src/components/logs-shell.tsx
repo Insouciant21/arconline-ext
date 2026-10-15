@@ -61,7 +61,7 @@ export function LogsShell({ initialData }: { initialData: LogsPayload }) {
         </section>
       )}
 
-      <footer className="footer"><span>ARCAEA B50 STUDIO</span><span>B50 FETCH · MEDIA PROCESS</span><span>LOCAL SYSTEM LOG</span></footer>
+      <footer className="footer"><span>ARCAEA B50 STUDIO</span><span>B50 FETCH · MEDIA PROCESS</span><span>D1 SYSTEM LOG</span></footer>
     </main>
   );
 }

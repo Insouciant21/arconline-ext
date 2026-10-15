@@ -1,0 +1,7 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { LoginForm } from "../components/login-form";
+import { safeCallbackUrl } from "../lib/auth";
+const callbackUrl = safeCallbackUrl(Astro.url.searchParams.get("callbackUrl"));
+---
+<Layout title="登录 · Arcaea B50 Studio"><LoginForm callbackUrl={callbackUrl} client:load /></Layout>

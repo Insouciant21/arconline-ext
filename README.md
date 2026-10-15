@@ -1,80 +1,111 @@
 # Arcaea Online Extension
 
-一个面向单个 Arcaea 账号的全栈归档面板：服务端登录 Lowiro，抓取当前 B50 和官方潜力值图片，将 B50 快照正文与媒体重传到 Cloudflare R2；同时写入本地 JSON/CSV，按天生成潜力值历史。
+单账号 Arcaea B50 与潜力值归档面板，使用 Astro、React 和 Cloudflare Workers。正式入口为 <https://arc.moeblue.top>。
 
-## 功能
+## 架构
 
-- 移动端 Chrome UA 访问 Lowiro API 与曲绘资源。
-- Auth.js 登录页使用服务端 `ADMIN_TOKEN` 建立会话；未登录无法访问页面和业务 API。
-- `POST /api/sync`：获取 B50、将快照正文备份为 `snapshots/{snapshotId}.json`，并把潜力值图片、玩家角色头像和 B50 曲绘上传 R2。
-- `/history`：查看本地快照与 R2 备份合并后的历史 B50，并按快照切换查看 50 首成绩。
-- `/logs`：查看 B50 获取与 MEDIA PROCESS 日志；日志保存在本地 `data/logs.json`，最多保留 500 条。
-- 如果本次 B50 与上次获取完全相同，仅返回当前页面显示，不写入本地历史、不上传快照或媒体到 R2。
-- 角色头像按 `characterId + icon` 缓存在 `data/character-images.json`，避免重复下载和上传；角色资源变更时自动生成新的 R2 对象。
-- 每天 `23:59:59`（默认 `Asia/Shanghai`）由 Node cron 自动执行一次每日同步。
-- 每次 B50 快照保存到 `data/b50-history.json`、`data/b50-history.csv` 和 `data/snapshots/*.json`；每日快照追加到 `data/ptt-history.json/csv`。
-- 当前 v7 B50 计算方式显示在面板：最高 10 条双倍计入，除以 60。官方返回的 `rating` 作为同步数据，计算值用于校验。
-- R2 未配置时仍可打开空面板；执行同步会返回明确的配置错误。
+- Astro 服务端页面与 API；原 React 成绩卡片、PTT 图表和历史对比作为交互组件保留。
+- D1 保存快照、官网原始 PTT、图片缓存、谱面别名、日志、会话和后台任务。
+- R2 原生绑定保存 `snapshots/`、`charts/`、`characters/`、`potential/` 与 `exports/`，保留现有对象键和媒体域名。
+- Queues 分阶段处理同步、历史导入及媒体重试。关闭浏览器不会终止任务，页面每两秒更新进度。
+- Cron 在 UTC `15:59`（北京时间 `23:59`）提交每日任务，每五分钟恢复过期任务和补投遗漏消息。
+- 管理口令登录，随机 Cookie 会话有效期七天；会话摘要保存在 D1，退出立即撤销。
 
-## 环境变量
+B50 未变化时不新增快照、不上传媒体；官网历史仍会更新。PTT 图表合并官网历史和快照，按北京时间取每日最高值。历史页直接查询 D1，不在每次请求中扫描 R2。日志保留最近 500 条。
 
-复制 `.env.example` 到 `.env`，并填写：
+后台使用 D1 事务保存任务及待投递记录；队列每次处理一个步骤，媒体每批最多八项、并行两项。步骤完成后记录检查点，失败最多自动重试三次，之后可以手动重试。确定性的 R2 对象键避免中断后重复上传。D1 租约持续二十分钟，长于队列调用上限，恢复任务由五分钟调度器负责。
 
-```env
-USERNAME=your-account-email
-PASSWD=your-password
-R2_ACCOUNT_ID=...
-R2_ACCESS_KEY_ID=...
-R2_SECRET_ACCESS_KEY=...
-R2_BUCKET_NAME=arcaea-assets
-R2_PUBLIC_URL=https://assets.example.com
-AUTH_SECRET=...
-AUTH_URL=http://localhost:3000
-ADMIN_TOKEN=...
-```
+## 本地开发
 
-如果没有为 R2 配置公开域名，面板会通过 `/api/media/*` 由服务端代理读取对象。生产环境建议使用 R2 自定义域名，并把 R2 token 权限限制为目标 bucket 的 Object Read & Write。
-
-`AUTH_SECRET` 用于 Auth.js 会话签名，必须设置为长随机值；`ADMIN_TOKEN` 是登录页访问口令，只在服务端校验。除 `/api/auth/*` 认证协议接口外，页面和 API 都需要有效登录会话。
-`AUTH_URL` 应设置为用户实际访问应用的公开 origin；本地 Docker 默认使用 `http://localhost:3000`，部署到域名或反向代理后请替换为对应的 `https://...` 地址。
-
-## 本地运行
+需要 Node.js 22.12+（建议当前 LTS）和 pnpm 10。
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
+cp .dev.vars.example .dev.vars
+pnpm db:migrate
 pnpm dev
 ```
 
-打开 <http://localhost:3000>，点击“获取 B50 & 潜力图”开始第一次同步。
-
-## Docker
+开发使用本地 D1/R2/队列模拟器，默认不连接正式数据。`pnpm dev` 的输出会说明本机访问地址；Astro 7 可使用 `pnpm exec astro dev stop` 停止后台开发服务。
 
 ```bash
-docker compose up -d --build
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm preview
 ```
 
-应用默认通过 <http://localhost:61616> 访问，容器内部仍使用 `3000` 端口。
+浏览器冒烟测试需要本地有至少两份历史快照：
 
-`/app/data` 使用 Docker volume 保存。单容器部署时内置 scheduler 会启动；多副本部署时应只保留一个 scheduler。
+```bash
+pnpm exec playwright install chromium
+pnpm test:browser
+```
 
-## API 概览
+默认访问 `http://127.0.0.1:4321`、口令 `local-test-token`。可通过 `SMOKE_ORIGIN`、`SMOKE_TOKEN` 或 `SMOKE_ENV_FILE` 指定目标与凭据。截图写入已忽略的 `.migration/`。
 
-| 方法 | 路径 | 作用 |
+## 配置与部署
+
+`wrangler.jsonc` 声明 `DB`、`ARCHIVE`、`JOBS` 绑定、定时任务及 `arc.moeblue.top` 的 Worker 自定义域名。Cloudflare 管理该域名的 DNS 与证书，站点不依赖旧服务器地址。生产凭据使用 Workers Secrets：
+
+```bash
+pnpm exec wrangler login
+pnpm exec wrangler secret put ADMIN_TOKEN
+pnpm exec wrangler secret put USERNAME
+pnpm exec wrangler secret put PASSWD
+pnpm db:migrate:remote
+pnpm run deploy
+```
+
+必须使用 `pnpm run deploy`，因为 `pnpm deploy` 是 pnpm 自身的工作区命令。
+
+`DAILY_SYNC_ENABLED` 控制每日同步；`MUTATIONS_ENABLED=false` 用于维护期间拒绝新任务并暂停处理。`R2_PUBLIC_URL` 为空时，图片通过需要登录的 `/api/media/*` 读取。页面和业务响应不进入公共缓存。
+
+更换 Cloudflare 账户时，需要先创建 D1、`arcaea-jobs` 和 `arcaea-jobs-failed` 队列，更新账户、数据库及 bucket 配置。首次上线先保持每日同步关闭，在 `workers.dev` 完成验证后再启用正式自定义域名。
+
+## API
+
+| 方法 | 路径 | 行为 |
 | --- | --- | --- |
-| GET/POST | `/api/auth/*` | Auth.js 登录、登出和会话接口 |
-| GET | `/api/dashboard` | 当前快照、PTT 历史和 scheduler 信息（需登录） |
-| GET | `/history` | 历史 B50 快照页面（需登录） |
-| GET | `/logs` | B50 获取与 MEDIA PROCESS 日志页面（需登录） |
-| POST | `/api/sync` | 手动抓取并归档（需登录） |
-| GET/POST | `/api/cron/daily` | 手动触发每日同步（需登录） |
-| GET | `/api/media/{key}` | 无 R2 公开域名时的对象代理（需登录） |
-| GET | `/api/health` | 服务与 R2 配置状态（需登录） |
+| POST | `/api/auth/login` | 校验管理口令并建立会话 |
+| POST | `/api/auth/logout` | 撤销会话 |
+| GET | `/api/auth/session` | 查询登录状态 |
+| GET | `/api/dashboard` | 当前 B50、每日 PTT、活动任务 |
+| POST | `/api/sync` | 提交同步，返回 `202 { jobId, status }` |
+| POST | `/api/history/import` | 提交官网 PTT 历史导入 |
+| POST | `/api/media/retry` | 重试最新失败快照的媒体 |
+| GET | `/api/jobs/{id}` | 查询阶段、进度、结果或错误 |
+| POST | `/api/jobs/{id}/retry` | 从检查点重试失败任务 |
+| POST | `/api/cron/daily` | 登录后的手动同步入口；GET 返回 405 |
+| GET | `/api/media/{key}` | 代理曲绘、角色和潜力图，使用私有缓存 |
+| GET | `/api/health` | 检查 D1 可访问及 R2 绑定配置 |
 
-### R2 重复快照清理
+除登录入口外，业务接口均需会话；修改状态的请求必须来自同一 origin。原 NextAuth 协议接口和 Cookie 不再使用，迁移后需要重新登录。
 
-清理脚本默认只执行 dry-run；它仅比较 `snapshots/` 中的 B50 内容，删除重复快照中较新的 `snapshots/{id}.json` 及对应 `potential/{id}.*`，保留最旧对象，不会删除曲绘或角色头像。确认 dry-run 输出后再执行：
+## 旧数据迁移
+
+导入支持多个旧 `data/` 目录和 R2 快照，按快照 ID、官网原始时间点去重。同 ID 的不同成绩会中止导入并生成冲突报告；媒体完整的版本优先。再次导入时同时合并 D1 已有数据，避免覆盖新记录。
 
 ```bash
-node --env-file=.env scripts/cleanup-r2.mjs
-node --env-file=.env scripts/cleanup-r2.mjs --apply
+# 只读预览，生成数量、逐快照指纹和每日 PTT 报告
+node --env-file=.env scripts/migrate-legacy.mjs --data /path/to/old/data --data ./data --r2
+
+# 导入并核对 D1 的快照指纹与每日 PTT
+node --env-file=.env scripts/migrate-legacy.mjs --data /path/to/old/data --data ./data --r2 --apply
+
+# 再次核对（不写入 D1）
+node --env-file=.env scripts/migrate-legacy.mjs --data /path/to/old/data --r2 --verify
+
+# 补齐原来只在本地保存的 R2 快照，默认 dry-run
+node --env-file=.env scripts/backfill-r2.mjs
+node --env-file=.env scripts/backfill-r2.mjs --apply
+
+# 导出为旧服务器可读取的 JSON/CSV 格式
+pnpm export:legacy --out .migration/cloud-export
 ```
+
+`--sql .migration/import.sql` 可生成 SQL，再用 `wrangler d1 execute DB --local --file ...` 导入本地模拟器。原数据和 R2 对象不会被删除。只有 CLI 导入、备份补齐和旧清理工具需要 S3 密钥，Worker 不需要。
+
+R2 重复清理仍为默认 dry-run：`node --env-file=.env scripts/cleanup-r2.mjs`。不应在导入或同步进行时执行带 `--apply` 的清理。
+
+上线切换和回滚步骤见 [部署运行手册](docs/deployment.md)。

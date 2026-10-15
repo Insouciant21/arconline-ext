@@ -14,11 +14,11 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
   const selected = initialData.snapshots.find((snapshot) => snapshot.id === selectedId) || initialData.snapshots[0];
 
   const sourceLabel = initialData.sources.r2Available
-    ? initialData.sources.localCount > 0
-      ? "LOCAL ARCHIVE + R2 BACKUP"
+    ? initialData.sources.d1Count > 0
+      ? "D1 ARCHIVE + R2 BACKUP"
       : "R2 BACKUP"
-    : initialData.sources.localCount > 0
-      ? "LOCAL ARCHIVE"
+    : initialData.sources.d1Count > 0
+      ? "D1 ARCHIVE"
       : "NO ARCHIVE";
 
   return (
@@ -46,11 +46,11 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
         <div>
           <p className="section-kicker"><HistoryIcon size={13} /> ARCHIVE TIMELINE</p>
           <h1 id="history-title">历史 <span>/ B50 SNAPSHOTS</span></h1>
-          <p className="history-description">从本地归档与 R2 备份中查看每次获取的 B50 快照。</p>
+          <p className="history-description">从D1 归档与 R2 备份中查看每次获取的 B50 快照。</p>
         </div>
         <div className="history-overview" aria-label="历史数据概览">
           <HistoryMetric label="SNAPSHOTS" value={String(initialData.snapshots.length)} />
-          <HistoryMetric label="LOCAL ARCHIVE" value={String(initialData.sources.localCount)} />
+          <HistoryMetric label="D1 ARCHIVE" value={String(initialData.sources.d1Count)} />
           <HistoryMetric label="R2 BACKUP" value={initialData.sources.r2Available ? String(initialData.sources.r2Count) : "—"} />
         </div>
       </section>
@@ -91,7 +91,7 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
         </section>
       )}
 
-      <footer className="footer"><span>ARCAEA B50 STUDIO</span><span>LOCAL ARCHIVE · R2 BACKUP</span><span>HISTORY / SNAPSHOTS</span></footer>
+      <footer className="footer"><span>ARCAEA B50 STUDIO</span><span>D1 ARCHIVE · R2 BACKUP</span><span>HISTORY / SNAPSHOTS</span></footer>
     </main>
   );
 }

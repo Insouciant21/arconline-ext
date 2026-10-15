@@ -1,18 +1,10 @@
-import { config } from "./config";
-import { enrichSnapshotAliases, readLatest, readPttHistory } from "./file-store";
+import type { Env } from "./environment";
+import { Store } from "./store";
+import { getConfig } from "./config";
+import { activeJob } from "./jobs";
 import type { DashboardPayload } from "./types";
-
-export async function getDashboardPayload(): Promise<DashboardPayload> {
-  const [latest, history] = await Promise.all([
-    readLatest(),
-    readPttHistory(),
-  ]);
-  return {
-    latest: latest ? (await enrichSnapshotAliases([latest]))[0] : null,
-    history,
-    scheduler: {
-      timezone: config.timezone,
-      cron: config.cronExpression,
-    },
-  };
+export async function getDashboardPayload(env: Env): Promise<DashboardPayload> {
+  const store = new Store(env);
+  const [latest, history, job] = await Promise.all([store.latest(), store.history(), activeJob(env)]);
+  return { latest, history, activeJob: job, scheduler: { timezone: getConfig(env).timezone, cron: "59 15 * * *" } };
 }

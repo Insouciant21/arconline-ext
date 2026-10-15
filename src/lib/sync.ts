@@ -1,600 +1,163 @@
-import { sameB50, scoreMediaKey } from "./b50";
 import { ArcaeaClient } from "./arcaea-client";
-import { config, requireR2 } from "./config";
+import { sameB50, scoreMediaKey } from "./b50";
+import { getConfig, getLocalDate } from "./config";
+import type { Env } from "./environment";
 import { AppError } from "./errors";
+import type { JobRow } from "./jobs";
 import { importOfficialHistory } from "./official-history";
-import {
-  appendLog,
-  getLocalDate,
-  mergeCharacterImageMap,
-  mergeChartImageMap,
-  readLatest,
-  readCharacterImageMap,
-  readChartImageMap,
-  withFileLock,
-  writeSnapshot,
-} from "./file-store";
-import { putAsset, putSnapshot, publicAssetUrl } from "./r2";
 import { calculateWeightedPotential, formatPotential } from "./potential";
-import type {
-  B50Snapshot,
-  Best50Score,
-  CharacterImageCache,
-  CharacterImageCacheEntry,
-  ChartImageCache,
-  ChartImageCacheEntry,
-  ImageStats,
-  LogEntry,
-  StoredUser,
-  SyncResult,
-} from "./types";
+import { publicAssetUrl, putAsset } from "./r2";
+import { Store } from "./store";
+import type { B50Snapshot, CharacterImageCacheEntry, ChartImageCacheEntry, JobView } from "./types";
 
-export type SyncTrigger = "manual" | "daily" | "cron";
+type MediaItem = { kind: "potential" | "chart" | "character"; key: string; bg?: string; icon?: string; characterId?: number; songId?: string; done?: boolean; cached?: boolean };
+export interface SyncState { snapshotId?: string; media?: MediaItem[]; preview?: B50Snapshot; duplicateOf?: string; historyMessage?: string; }
+type StepResult = { stage: string; state: SyncState; result?: NonNullable<JobView["result"]> };
 
-export interface MediaRetryResult {
-  snapshot: B50Snapshot;
-  message: string;
-}
-
-interface MediaSyncJob {
-  client: ArcaeaClient;
-  snapshot: B50Snapshot;
-  retry?: boolean;
-}
-
-export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
-  await recordLog({
-    scope: "b50",
-    level: "info",
-    action: "started",
-    message: `开始获取 B50（${trigger}）。`,
-    details: { trigger },
-  });
-
-  try {
-    const job = await withFileLock("sync", async (): Promise<SyncJob> => {
-      requireR2();
-      const client = await ArcaeaClient.login();
-      const remote = await client.fetchB50Snapshot();
-      await importOfficialHistory(client, remote.best50).catch((error) => console.error("[sync] official history import failed", error));
-      const previous = await readLatest();
-      const [chartImageMap, characterImageMap] = await Promise.all([
-        readChartImageMap(),
-        readCharacterImageMap(),
-      ]);
-      const fetchedAt = new Date().toISOString();
-      const id = snapshotId(new Date(fetchedAt));
-      const best50 = remote.best50.map((score) => enrichScoreFromCache(score, chartImageMap));
-      const user = enrichUserFromCache(remote.user, characterImageMap);
-      const uniqueScores = dedupeByBackground(best50);
-      const imageStats: ImageStats = {
-        requested: uniqueScores.length,
-        uploaded: 0,
-        failed: 0,
-        failures: [],
-        cached: uniqueScores.filter((score) => Boolean(cachedChartImageForScore(score, chartImageMap))).length,
-      };
-      const snapshot: B50Snapshot = {
-        id,
-        fetchedAt,
-        trigger,
-        potential: formatPotential(remote.user.rating),
-        weightedPotential: formatPotential(calculateWeightedPotential(best50.map((score) => score.rating))),
-        user,
-        best50,
-        imageStats,
-        mediaStatus: "processing",
-      };
-
-      if (previous && sameB50(previous, { best50: remote.best50 })) {
-        return {
-          client,
-          snapshot: buildDuplicatePreview(snapshot, previous),
-          recorded: false,
-          duplicateOf: previous.id,
-        };
-      }
-
-      // Persist the score data before any media request. The API can now return
-      // the B50 while the image pipeline continues in the background.
-      await persistSnapshot(snapshot);
-      return { client, snapshot, recorded: true };
-    });
-
-    if (!job.recorded) {
-      await recordLog({
-        scope: "b50",
-        level: "warning",
-        action: "skipped",
-        message: "B50 与上次获取相同，仅在当前页面显示，未写入本地历史或 R2。",
-        snapshotId: job.snapshot.id,
-        details: {
-          duplicateOf: job.duplicateOf || "",
-          entries: job.snapshot.best50.length,
-        },
-      });
-      await recordLog({
-        scope: "media",
-        level: "info",
-        action: "skipped",
-        message: "B50 未变化，跳过 MEDIA PROCESS 和 R2 媒体上传。",
-        snapshotId: job.snapshot.id,
-        details: { duplicateOf: job.duplicateOf || "" },
-      });
-      return {
-        snapshot: job.snapshot,
-        recorded: false,
-        ...(job.duplicateOf ? { duplicateOf: job.duplicateOf } : {}),
-        message: "B50 与上次获取相同，仅保留在当前页面显示，未写入本地历史或 R2。",
-      };
+export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncState) => Promise<void>): Promise<StepResult> {
+  const store = new Store(env), state = JSON.parse(job.state) as SyncState;
+  if (job.stage === "fetch") {
+    if (job.kind === "retry") {
+      const snapshot = state.snapshotId ? await store.snapshot(state.snapshotId) : await store.latest();
+      if (!snapshot) throw new AppError("没有可重试的快照。", 404, "SNAPSHOT_MISSING");
+      state.snapshotId = snapshot.id;
+      snapshot.mediaStatus = "processing"; delete snapshot.mediaError;
+      await store.writeSnapshot(snapshot);
+      state.media = mediaItems(snapshot);
+      await checkpoint(state);
+      return { stage: "media", state };
     }
-
-    await recordLog({
-      scope: "b50",
-      level: "success",
-      action: "recorded",
-      message: "B50 获取成功，已记录到本地并备份至 R2。",
-      snapshotId: job.snapshot.id,
-      details: {
-        entries: job.snapshot.best50.length,
-        potential: job.snapshot.potential,
-      },
-    });
-
-    // The self-hosted Docker process remains alive after the response. Keep the
-    // media work detached so the B50 response is not held by Lowiro/R2 latency.
-    void finishMediaSync(job);
-    return {
-      snapshot: job.snapshot,
-      recorded: true,
-      message: "B50 已获取并记录，潜力图、曲绘与头像正在后台处理。",
+    const client = await ArcaeaClient.login(env);
+    if (job.kind === "import") {
+      const imported = await importOfficialHistory(store, client);
+      state.historyMessage = `已同步官网历史 PTT，共保存 ${imported.total} 个原始数据点。`;
+      return { stage: "archive", state };
+    }
+    // Reuse a checkpoint if the worker stopped after the score write.
+    const snapshotId = state.snapshotId || `${getLocalDate(job.created_at, getConfig(env).timezone)}-${job.id}`;
+    const saved = await store.snapshot(snapshotId);
+    if (saved) {
+      state.snapshotId = saved.id; state.media = mediaItems(saved);
+      await checkpoint(state);
+      return { stage: "history", state };
+    }
+    const remote = await client.fetchB50Snapshot();
+    await store.aliases(remote.best50);
+    const previous = await store.latest();
+    const snapshot: B50Snapshot = {
+      id: snapshotId, fetchedAt: new Date().toISOString(), trigger: job.trigger,
+      potential: formatPotential(remote.user.rating), weightedPotential: formatPotential(calculateWeightedPotential(remote.best50.map(score => score.rating))),
+      user: remote.user, best50: remote.best50,
+      imageStats: { requested: new Set(remote.best50.map(score => score.bg).filter(Boolean)).size, uploaded: 0, failed: 0, failures: [], cached: 0 }, mediaStatus: "processing",
     };
-  } catch (error) {
-    await recordLog({
-      scope: "b50",
-      level: "error",
-      action: "failed",
-      message: `B50 获取失败：${error instanceof Error ? error.message : "未知错误"}`,
-    });
-    throw error;
+    await enrichCached(store, snapshot);
+    if (previous && sameB50(previous, snapshot)) {
+      const scores = new Map(previous.best50.map(score => [scoreMediaKey(score), score]));
+      snapshot.best50 = snapshot.best50.map(score => ({ ...scores.get(scoreMediaKey(score)), ...score }));
+      snapshot.potentialImageKey = previous.potentialImageKey;
+      snapshot.potentialImageUrl = previous.potentialImageKey ? publicAssetUrl(env, previous.potentialImageKey) : previous.potentialImageUrl;
+      snapshot.mediaStatus = previous.mediaStatus || "complete";
+      snapshot.mediaError = previous.mediaError;
+      state.preview = snapshot; state.duplicateOf = previous.id;
+    } else {
+      state.snapshotId = snapshot.id;
+      await store.writeSnapshot(snapshot);
+      state.media = mediaItems(snapshot);
+    }
+    await checkpoint(state);
+    await store.log({ scope: "b50", level: state.duplicateOf ? "warning" : "success", action: state.duplicateOf ? "skipped" : "recorded", message: state.duplicateOf ? "B50 未变化，跳过快照和媒体归档。" : "B50 已保存，继续处理历史和媒体。", snapshotId: snapshot.id });
+    return { stage: "history", state };
   }
-}
-
-export async function retryMediaSync(): Promise<MediaRetryResult> {
-  const job = await withFileLock("sync", async (): Promise<MediaSyncJob> => {
-    requireR2();
-    const previous = await readLatest();
-    if (!previous) {
-      throw new AppError("还没有可重试的 B50 快照。", 404, "MEDIA_RETRY_SNAPSHOT_MISSING");
-    }
-    if (previous.mediaStatus !== "failed") {
-      throw new AppError("当前快照没有可重试的 MEDIA PARTIAL 任务。", 409, "MEDIA_RETRY_NOT_AVAILABLE");
-    }
-
-    const client = await ArcaeaClient.login();
-    const snapshot = prepareMediaRetry(previous);
-    await persistSnapshot(snapshot);
-    return { client, snapshot, retry: true };
-  });
-
-  await recordLog({
-    scope: "media",
-    level: "info",
-    action: "retry",
-    message: "手动重试 MEDIA PROCESS，继续处理失败的媒体资源。",
-    snapshotId: job.snapshot.id,
-    details: { entries: job.snapshot.best50.length },
-  });
-  void finishMediaSync(job);
-
-  return {
-    snapshot: job.snapshot,
-    message: "MEDIA PARTIAL 已进入重试，失败的媒体资源正在后台处理。",
-  };
-}
-
-interface SyncJob extends MediaSyncJob {
-  recorded: boolean;
-  duplicateOf?: string;
-}
-
-async function finishMediaSync({ client, snapshot, retry = false }: MediaSyncJob) {
-  await recordLog({
-    scope: "media",
-    level: "info",
-    action: "started",
-    message: retry
-      ? "开始重试 MEDIA PROCESS，处理失败的媒体资源。"
-      : "开始 MEDIA PROCESS，处理潜力图、曲绘与头像。",
-    snapshotId: snapshot.id,
-    details: { entries: snapshot.best50.length, retry },
-  });
-
-  try {
-    requireR2();
-    const [potentialResult, chartResult, characterResult] = await Promise.all([
-      uploadPotentialImage(client, snapshot),
-      uploadChartImages(client, snapshot.best50),
-      uploadCharacterImage(client, snapshot.user),
-    ]);
-    const best50 = snapshot.best50.map((score) => enrichScore(score, chartResult.imagesByBackground));
-    const failures = [...chartResult.failures];
-    if (potentialResult.error) {
-      failures.push({ songId: "__potential__", reason: potentialResult.error });
-    }
-    if (characterResult.error) {
-      failures.push({ songId: "__avatar__", reason: characterResult.error });
-    }
-    const mediaError = failures.length > 0
-      ? potentialResult.error || `${failures.length} 个媒体资源上传失败。`
-      : undefined;
-    const { mediaError: _previousMediaError, ...snapshotWithoutMediaError } = snapshot;
-    const updatedSnapshot: B50Snapshot = {
-      ...snapshotWithoutMediaError,
-      user: characterResult.user,
-      best50,
-      ...(potentialResult.key
-        ? {
-            potentialImageKey: potentialResult.key,
-            potentialImageUrl: publicAssetUrl(potentialResult.key),
-          }
-        : {}),
-      imageStats: {
-        ...snapshot.imageStats,
-        uploaded: chartResult.uploaded,
-        failed: failures.length,
-        failures,
-        cached: chartResult.cached,
-      },
-      mediaStatus: failures.length > 0 ? "failed" : "complete",
-      ...(mediaError ? { mediaError } : {}),
-    };
-    await persistSnapshot(updatedSnapshot);
-    await recordLog({
-      scope: "media",
-      level: failures.length > 0 ? "warning" : "success",
-      action: failures.length > 0 ? "partial" : "completed",
-      message: failures.length > 0
-        ? `MEDIA PROCESS 完成，但有 ${failures.length} 个媒体资源失败。`
-        : "MEDIA PROCESS 完成，媒体资源已备份至 R2。",
-      snapshotId: snapshot.id,
-      details: {
-        chartUploaded: chartResult.uploaded,
-        chartCached: chartResult.cached,
-        failed: failures.length,
-        potentialUploaded: Boolean(potentialResult.key),
-        characterReady: Boolean(characterResult.user.avatarImageKey || characterResult.user.avatarImageUrl),
-      },
-    });
-  } catch (error) {
-    const mediaError = error instanceof Error ? error.message : "媒体同步失败。";
-    const failedSnapshot = { ...snapshot, mediaStatus: "failed" as const, mediaError };
+  if (job.stage === "history") {
+    // History failure must not discard a successfully fetched B50.
     try {
-      await persistSnapshot(failedSnapshot);
-    } catch (persistError) {
-      console.error("[sync] failed to persist media error", persistError);
-    }
-    await recordLog({
-      scope: "media",
-      level: "error",
-      action: "failed",
-      message: `MEDIA PROCESS 失败：${mediaError}`,
-      snapshotId: snapshot.id,
-    });
-    console.error(`[sync] background media sync failed for ${snapshot.id}`, error);
-  }
-}
-
-async function persistSnapshot(snapshot: B50Snapshot) {
-  await writeSnapshot(snapshot);
-  await putSnapshot(snapshot);
-}
-
-async function recordLog(
-  input: Omit<LogEntry, "id" | "timestamp"> & { timestamp?: string },
-) {
-  try {
-    await appendLog(input);
-  } catch (error) {
-    console.error("[logs] failed to persist application log", error);
-  }
-}
-
-function buildDuplicatePreview(snapshot: B50Snapshot, previous: B50Snapshot): B50Snapshot {
-  const previousScores = new Map(previous.best50.map((score) => [scoreMediaKey(score), score]));
-  const best50 = snapshot.best50.map((score) => {
-    const previousScore = previousScores.get(scoreMediaKey(score));
-    if (!previousScore || score.imageKey || score.imageUrl) return score;
-    if (previousScore.imageKey) {
-      return {
-        ...score,
-        imageKey: previousScore.imageKey,
-        imageUrl: publicAssetUrl(previousScore.imageKey),
-      };
-    }
-    return previousScore.imageUrl ? { ...score, imageUrl: previousScore.imageUrl } : score;
-  });
-  const user = snapshot.user.avatarImageKey || snapshot.user.avatarImageUrl
-    ? snapshot.user
-    : previous.user.avatarImageKey
-      ? {
-          ...snapshot.user,
-          avatarImageKey: previous.user.avatarImageKey,
-          avatarImageUrl: publicAssetUrl(previous.user.avatarImageKey),
-        }
-      : previous.user.avatarImageUrl
-        ? { ...snapshot.user, avatarImageUrl: previous.user.avatarImageUrl }
-        : snapshot.user;
-
-  return {
-    ...snapshot,
-    user,
-    best50,
-    ...(previous.potentialImageKey
-      ? {
-          potentialImageKey: previous.potentialImageKey,
-          potentialImageUrl: publicAssetUrl(previous.potentialImageKey),
-        }
-      : previous.potentialImageUrl
-        ? { potentialImageUrl: previous.potentialImageUrl }
-        : {}),
-    imageStats: {
-      ...snapshot.imageStats,
-      uploaded: 0,
-      failed: 0,
-      failures: [],
-      cached: dedupeByBackground(best50).filter((score) => Boolean(score.imageKey || score.imageUrl)).length,
-    },
-    mediaStatus: previous.mediaStatus === "failed" ? "failed" : "complete",
-    ...(previous.mediaStatus === "failed" && previous.mediaError
-      ? { mediaError: previous.mediaError }
-      : {}),
-  };
-}
-
-function prepareMediaRetry(snapshot: B50Snapshot): B50Snapshot {
-  const { mediaError: _previousMediaError, ...snapshotWithoutMediaError } = snapshot;
-  return {
-    ...snapshotWithoutMediaError,
-    imageStats: {
-      ...snapshot.imageStats,
-      uploaded: 0,
-      failed: 0,
-      failures: [],
-    },
-    mediaStatus: "processing",
-  };
-}
-
-async function uploadPotentialImage(client: ArcaeaClient, snapshot: B50Snapshot) {
-  if (snapshot.potentialImageKey) {
-    return { key: snapshot.potentialImageKey };
-  }
-
-  try {
-    const image = await client.getOnlineImage();
-    const extension = extensionForContentType(image.contentType);
-    const key = `potential/${snapshot.id}${extension}`;
-    await putAsset(key, image.body, image.contentType, {
-      kind: "potential",
-      snapshotId: snapshot.id,
-    });
-    return { key };
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : "潜力值图片同步失败。" };
-  }
-}
-
-async function uploadChartImages(client: ArcaeaClient, scores: Best50Score[]) {
-  const chartImageMap = await readChartImageMap();
-  const imagesByBackground = new Map<string, ChartImageCacheEntry>();
-  const failures: Array<{ songId: string; reason: string }> = [];
-  let uploaded = 0;
-  let cached = 0;
-  const uniqueScores = dedupeByBackground(scores);
-  const missingScores = uniqueScores.filter((score) => {
-    const cachedImage = cachedChartImageForScore(score, chartImageMap);
-    if (!cachedImage || !score.bg) return true;
-    imagesByBackground.set(score.bg, normalizeChartImage(cachedImage));
-    cached += 1;
-    return false;
-  });
-
-  await mapWithConcurrency(missingScores, 6, async (score) => {
-    if (!score.bg) return;
-    const key = `charts/${score.bg}.jpg`;
-    try {
-      const image = await client.getChartImage(score.bg);
-      await putAsset(key, image.body, image.contentType, {
-        kind: "chart",
-        songId: score.songId,
-        difficulty: String(score.difficulty),
-      });
-      imagesByBackground.set(score.bg, {
-        songId: score.songId,
-        bg: score.bg,
-        imageKey: key,
-        imageUrl: publicAssetUrl(key),
-        updatedAt: new Date().toISOString(),
-      });
-      uploaded += 1;
+      const client = await ArcaeaClient.login(env);
+      const scores = state.preview?.best50 || (state.snapshotId ? (await store.snapshot(state.snapshotId))?.best50 : undefined);
+      await importOfficialHistory(store, client, scores);
     } catch (error) {
-      failures.push({
-        songId: score.songId,
-        reason: error instanceof Error ? error.message : "曲绘同步失败。",
-      });
+      await store.log({ scope: "b50", level: "warning", action: "history-import-failed", message: `官网历史导入失败，保留已有数据：${error instanceof Error ? error.message : "未知错误"}` });
     }
-  });
-
-  const cacheEntries: ChartImageCache = {};
-  const updatedAt = new Date().toISOString();
-  for (const score of scores) {
-    if (!score.bg) continue;
-    const image = imagesByBackground.get(score.bg);
-    if (!image || !score.songId) continue;
-    cacheEntries[score.songId] = { ...image, songId: score.songId, bg: score.bg, updatedAt };
+    if (state.preview) return { stage: "archive", state };
+    return { stage: "media", state };
   }
-  await mergeChartImageMap(cacheEntries);
-  return { imagesByBackground, uploaded, cached, failures };
-}
-
-async function uploadCharacterImage(client: ArcaeaClient, user: StoredUser) {
-  const characterId = user.characterId;
-  const characterIcon = user.characterIcon;
-  if (characterId === undefined || !characterIcon) {
-    return { user };
-  }
-
-  return withFileLock(`character-upload-${characterId}`, async () => {
-    const characterImageMap = await readCharacterImageMap();
-    const cachedImage = cachedCharacterImageForUser(user, characterImageMap);
-    if (cachedImage) {
-      return { user: enrichUserFromCache(user, characterImageMap) };
-    }
-
-    const key = `characters/${characterIcon}.png`;
-    try {
-      const image = await client.getCharacterIconImage(characterIcon);
-      await putAsset(key, image.body, image.contentType, {
-        kind: "character",
-        characterId: String(characterId),
-        icon: characterIcon,
-      });
-      const entry: CharacterImageCacheEntry = {
-        characterId,
-        icon: characterIcon,
-        imageKey: key,
-        imageUrl: publicAssetUrl(key),
-        updatedAt: new Date().toISOString(),
-      };
-      await mergeCharacterImageMap({ [String(characterId)]: entry });
-      return {
-        user: {
-          ...user,
-          avatarImageKey: key,
-          avatarImageUrl: publicAssetUrl(key),
-        },
-      };
-    } catch (error) {
-      return {
-        user,
-        error: error instanceof Error ? error.message : "角色头像同步失败。",
-      };
-    }
-  });
-}
-
-function enrichScoreFromCache(score: Best50Score, chartImageMap: ChartImageCache) {
-  const cachedImage = cachedChartImageForScore(score, chartImageMap);
-  return cachedImage ? enrichScore(score, new Map([[score.bg || score.songId, normalizeChartImage(cachedImage)]])) : score;
-}
-
-function enrichUserFromCache(user: StoredUser, characterImageMap: CharacterImageCache) {
-  const cachedImage = cachedCharacterImageForUser(user, characterImageMap);
-  if (!cachedImage) return user;
-  const imageUrl = cachedImage.imageKey
-    ? publicAssetUrl(cachedImage.imageKey)
-    : cachedImage.imageUrl;
-  return {
-    ...user,
-    ...(cachedImage.imageKey ? { avatarImageKey: cachedImage.imageKey } : {}),
-    ...(imageUrl ? { avatarImageUrl: imageUrl } : {}),
-  };
-}
-
-function enrichScore(
-  score: Best50Score,
-  imagesByBackground: Map<string, ChartImageCacheEntry>,
-): Best50Score {
-  const image = score.bg ? imagesByBackground.get(score.bg) : undefined;
-  return {
-    ...score,
-    ...(image
-      ? {
-          ...(image.imageKey ? { imageKey: image.imageKey } : {}),
-          ...(image.imageUrl ? { imageUrl: image.imageUrl } : {}),
+  if (job.stage === "media") {
+    const snapshot = state.snapshotId ? await store.snapshot(state.snapshotId) : null;
+    if (!snapshot) throw new AppError("任务快照不存在。", 404, "SNAPSHOT_MISSING");
+    snapshot.mediaStatus = "processing"; delete snapshot.mediaError;
+    const items = state.media || (state.media = mediaItems(snapshot));
+    const pending = items.filter(item => !item.done).slice(0, 8);
+    const client = pending.length ? await ArcaeaClient.login(env) : null;
+    // Checkpoint after each pair: a redelivery can HEAD deterministic R2 keys
+    // and recover an upload that finished before its database checkpoint.
+    for (let i = 0; i < pending.length; i += 2) {
+      const pair = pending.slice(i, i + 2);
+      const results = await Promise.allSettled(pair.map(async item => {
+        const exists = await env.ARCHIVE.head(item.key);
+        if (!exists) {
+          const image = item.kind === "potential" ? await client!.getOnlineImage() : item.kind === "chart" ? await client!.getChartImage(item.bg!) : await client!.getCharacterIconImage(item.icon!);
+          await putAsset(env, item.key, image.body, image.contentType, { kind: item.kind, snapshotId: snapshot.id });
         }
-      : {}),
-  };
-}
-
-function cachedChartImageForScore(score: Best50Score, chartImageMap: ChartImageCache) {
-  const direct = chartImageMap[score.songId];
-  if (direct && sameBackground(score, direct)) return direct;
-  if (!score.bg) return undefined;
-  return Object.values(chartImageMap).find((entry) => entry.bg === score.bg);
-}
-
-function cachedCharacterImageForUser(
-  user: StoredUser,
-  characterImageMap: CharacterImageCache,
-) {
-  if (user.characterId === undefined || !user.characterIcon) return undefined;
-  const direct = characterImageMap[String(user.characterId)];
-  if (direct && sameCharacter(user, direct) && (direct.imageKey || direct.imageUrl)) {
-    return direct;
+        item.cached = Boolean(exists);
+        await applyMedia(store, snapshot, item);
+        item.done = true;
+      }));
+      snapshot.imageStats = mediaStats(items);
+      await store.writeSnapshot(snapshot);
+      await checkpoint(state);
+      const failure = results.find(result => result.status === "rejected");
+      if (failure?.status === "rejected") throw failure.reason;
+    }
+    return { stage: items.some(item => !item.done) ? "media" : "archive", state };
   }
-  return Object.values(characterImageMap).find(
-    (entry) => sameCharacter(user, entry) && Boolean(entry.imageKey || entry.imageUrl),
-  );
+  if (job.stage === "archive") {
+    let snapshot: B50Snapshot | null = null;
+    if (state.snapshotId) {
+      snapshot = await store.snapshot(state.snapshotId);
+      if (!snapshot) throw new Error("Snapshot missing during archive");
+      snapshot.mediaStatus = "complete"; delete snapshot.mediaError;
+      await store.writeSnapshot(snapshot);
+      await store.backup(snapshot);
+    }
+    await store.exportArchive();
+    if (state.preview) return { stage: "done", state, result: { snapshot: state.preview, recorded: false, duplicateOf: state.duplicateOf, message: "B50 未变化，仅显示当前结果，未新增快照或上传媒体。" } };
+    await store.log({ scope: job.kind === "import" ? "b50" : "media", level: "success", action: "completed", message: state.historyMessage || "媒体处理和 R2 归档已完成。", ...(snapshot ? { snapshotId: snapshot.id } : {}) });
+    return { stage: "done", state, result: { ...(snapshot ? { snapshot, recorded: true } : {}), message: state.historyMessage || "B50、媒体和归档已同步完成。" } };
+  }
+  throw new Error(`Unknown task stage: ${job.stage}`);
 }
-
-function sameCharacter(user: StoredUser, entry: CharacterImageCacheEntry) {
-  return (
-    user.characterId === entry.characterId &&
-    (!entry.icon || !user.characterIcon || entry.icon === user.characterIcon)
-  );
-}
-
-function sameBackground(score: Best50Score, entry: ChartImageCacheEntry) {
-  return !score.bg || !entry.bg || score.bg === entry.bg;
-}
-
-function normalizeChartImage(entry: ChartImageCacheEntry): ChartImageCacheEntry {
-  return {
-    ...entry,
-    ...(entry.imageKey ? { imageUrl: publicAssetUrl(entry.imageKey) } : {}),
-  };
-}
-
-function dedupeByBackground(scores: Best50Score[]) {
+function mediaItems(snapshot: B50Snapshot): MediaItem[] {
+  const items: MediaItem[] = [{ kind: "potential", key: snapshot.potentialImageKey || `potential/${snapshot.id}.image`, done: Boolean(snapshot.potentialImageKey), cached: Boolean(snapshot.potentialImageKey) }];
   const seen = new Set<string>();
-  return scores.filter((score) => {
-    if (!score.bg || seen.has(score.bg)) return false;
+  for (const score of snapshot.best50) {
+    if (!score.bg || seen.has(score.bg)) continue;
     seen.add(score.bg);
-    return true;
-  });
+    items.push({ kind: "chart", key: score.imageKey || `charts/${score.bg}.jpg`, bg: score.bg, songId: score.songId, done: Boolean(score.imageKey), cached: Boolean(score.imageKey) });
+  }
+  if (snapshot.user.characterIcon && snapshot.user.characterId !== undefined) items.push({ kind: "character", key: snapshot.user.avatarImageKey || `characters/${snapshot.user.characterIcon}.png`, icon: snapshot.user.characterIcon, characterId: snapshot.user.characterId, done: Boolean(snapshot.user.avatarImageKey), cached: Boolean(snapshot.user.avatarImageKey) });
+  return items;
 }
-
-async function mapWithConcurrency<T>(
-  items: T[],
-  concurrency: number,
-  worker: (item: T) => Promise<void>,
-) {
-  let cursor = 0;
-  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-    while (cursor < items.length) {
-      const current = items[cursor];
-      cursor += 1;
-      await worker(current);
-    }
-  });
-  await Promise.all(workers);
+function mediaStats(items: MediaItem[]) {
+  const charts = items.filter(item => item.kind === "chart");
+  return { requested: charts.length, uploaded: charts.filter(item => item.done && !item.cached).length, cached: charts.filter(item => item.done && item.cached).length, failed: 0, failures: [] };
 }
-
-function extensionForContentType(contentType: string) {
-  if (contentType.includes("png")) return ".png";
-  if (contentType.includes("webp")) return ".webp";
-  return ".jpg";
+async function applyMedia(store: Store, snapshot: B50Snapshot, item: MediaItem) {
+  const url = publicAssetUrl(store.env, item.key), updatedAt = new Date().toISOString();
+  if (item.kind === "potential") { snapshot.potentialImageKey = item.key; snapshot.potentialImageUrl = url; }
+  if (item.kind === "chart") {
+    for (const score of snapshot.best50.filter(score => score.bg === item.bg)) { score.imageKey = item.key; score.imageUrl = url; }
+    await store.putCache("chart", item.bg!, { songId: item.songId, bg: item.bg, imageKey: item.key, imageUrl: url, updatedAt });
+  }
+  if (item.kind === "character") {
+    snapshot.user.avatarImageKey = item.key; snapshot.user.avatarImageUrl = url;
+    await store.putCache("character", `${item.characterId}:${item.icon}`, { characterId: item.characterId, icon: item.icon, imageKey: item.key, imageUrl: url, updatedAt });
+  }
 }
-
-function snapshotId(date: Date) {
-  return `${getLocalDate(date)}-${date
-    .toISOString()
-    .slice(11, 23)
-    .replaceAll(":", "")}`;
-}
-
-export function schedulerDescription() {
-  return { timezone: config.timezone, cron: config.cronExpression };
+async function enrichCached(store: Store, snapshot: B50Snapshot) {
+  const [charts, characters] = await Promise.all([store.cache<ChartImageCacheEntry>("chart"), store.cache<CharacterImageCacheEntry>("character")]);
+  for (const score of snapshot.best50) {
+    const entry = Object.values(charts).find(item => item.bg === score.bg && item.imageKey);
+    if (score.bg && entry?.imageKey) { score.imageKey = entry.imageKey; score.imageUrl = publicAssetUrl(store.env, entry.imageKey); }
+  }
+  const character = Object.values(characters).find(item => item.characterId === snapshot.user.characterId && item.icon === snapshot.user.characterIcon && item.imageKey);
+  if (character?.imageKey) { snapshot.user.avatarImageKey = character.imageKey; snapshot.user.avatarImageUrl = publicAssetUrl(store.env, character.imageKey); }
 }

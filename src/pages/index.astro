@@ -1,0 +1,9 @@
+---
+import { env } from "cloudflare:workers";
+import type { Env } from "../lib/environment";
+import Layout from "../layouts/Layout.astro";
+import { DashboardShell } from "../components/dashboard-shell";
+import { getDashboardPayload } from "../lib/dashboard";
+const data = await getDashboardPayload(env as Env);
+---
+<Layout><DashboardShell initialData={data} client:load /></Layout>

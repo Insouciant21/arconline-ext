@@ -92,6 +92,7 @@ export interface PotentialHistoryPoint {
 export interface DashboardPayload {
   latest: B50Snapshot | null;
   history: PotentialHistoryPoint[];
+  activeJob: JobView | null;
   scheduler: {
     timezone: string;
     cron: string;
@@ -101,10 +102,23 @@ export interface DashboardPayload {
 export interface HistoryPayload {
   snapshots: B50Snapshot[];
   sources: {
-    localCount: number;
+    d1Count: number;
     r2Count: number;
     r2Available: boolean;
   };
+}
+
+export type JobKind = "sync" | "import" | "retry";
+export interface JobView {
+  id: string;
+  kind: JobKind;
+  status: "queued" | "running" | "succeeded" | "failed";
+  stage: string;
+  progress: { completed: number; total: number };
+  createdAt: string;
+  updatedAt: string;
+  result?: { snapshot?: B50Snapshot; recorded?: boolean; duplicateOf?: string; message: string };
+  error?: string;
 }
 
 export type LogScope = "b50" | "media";
