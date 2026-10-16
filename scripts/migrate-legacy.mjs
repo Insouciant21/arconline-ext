@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
-import { S3Client, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
+import { withArchive, listArchiveObjects } from './lib/archive.mjs';
 import { query } from './lib/cloudflare.mjs';
 import { readLegacy, mergeLegacy, fingerprint, localDate, hash } from './lib/legacy.mjs';
 
@@ -9,19 +9,14 @@ const sources = [];
 for (const directory of values.data || ['data']) sources.push({ name:directory, data:await readLegacy(directory) });
 const remoteIds = new Set();
 if (values.r2) {
-  for (const key of ['R2_ACCOUNT_ID','R2_ACCESS_KEY_ID','R2_SECRET_ACCESS_KEY']) if (!process.env[key]) throw new Error(`Missing ${key}`);
-  const client = new S3Client({ region:'auto', endpoint:process.env.R2_ENDPOINT || `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`, credentials:{accessKeyId:process.env.R2_ACCESS_KEY_ID,secretAccessKey:process.env.R2_SECRET_ACCESS_KEY} });
-  const bucket = process.env.R2_BUCKET_NAME || process.env.R2_BUCKET;
   const snapshots=[];
-  let cursor;
-  do {
-    const list = await client.send(new ListObjectsV2Command({ Bucket:bucket,Prefix:'snapshots/',ContinuationToken:cursor }));
-    for (const object of list.Contents || []) if (object.Key.endsWith('.json')) {
-      const result=await client.send(new GetObjectCommand({Bucket:bucket,Key:object.Key}));
-      const snapshot=JSON.parse(await result.Body.transformToString()); snapshots.push(snapshot); remoteIds.add(snapshot.id);
+  await withArchive(async archive => {
+    for await (const object of listArchiveObjects(archive, 'snapshots/')) if (object.key.endsWith('.json')) {
+      const result=await archive.get(object.key);
+      if (!result) throw new Error(`R2 snapshot disappeared during import: ${object.key}`);
+      const snapshot=await result.json(); snapshots.push(snapshot); remoteIds.add(snapshot.id);
     }
-    cursor=list.IsTruncated?list.NextContinuationToken:undefined;
-  } while(cursor);
+  });
   sources.unshift({name:'R2',data:{snapshots,points:[],charts:{},characters:{},aliases:{},logs:[]}});
 }
 // A repeated live import must not roll newer cloud data back to an older source.

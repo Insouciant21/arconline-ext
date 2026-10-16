@@ -1,38 +1,17 @@
-import {
-  DeleteObjectsCommand,
-  GetObjectCommand,
-  ListObjectsV2Command,
-  S3Client,
-} from "@aws-sdk/client-s3";
+import { withArchive, listArchiveObjects, deleteArchiveObjects } from "./lib/archive.mjs";
 
 const apply = process.argv.includes("--apply");
-const accountId = process.env.R2_ACCOUNT_ID?.trim();
-const accessKeyId = process.env.R2_ACCESS_KEY_ID?.trim();
-const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY?.trim();
-const bucket = (process.env.R2_BUCKET_NAME || process.env.R2_BUCKET)?.trim();
 
-if (!accountId || !accessKeyId || !secretAccessKey || !bucket) {
-  throw new Error(
-    "Missing R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY or R2_BUCKET_NAME/R2_BUCKET.",
-  );
-}
-
-const client = new S3Client({
-  region: "auto",
-  endpoint: process.env.R2_ENDPOINT?.trim() || `https://${accountId}.r2.cloudflarestorage.com`,
-  credentials: { accessKeyId, secretAccessKey },
-});
-
-async function main() {
-  const snapshotObjects = await listObjects("snapshots/");
+async function main(archive) {
+  const snapshotObjects = await listObjects(archive, "snapshots/");
   const snapshots = [];
   for (const object of snapshotObjects) {
-    if (!object.Key?.endsWith(".json")) continue;
+    if (!object.key?.endsWith(".json")) continue;
     try {
-      const snapshot = await readSnapshot(object.Key);
-      if (snapshot) snapshots.push({ key: object.Key, snapshot });
+      const snapshot = await readSnapshot(archive, object.key);
+      if (snapshot) snapshots.push({ key: object.key, snapshot });
     } catch (error) {
-      console.warn(`[r2-cleanup] skipped unreadable snapshot ${object.Key}: ${errorMessage(error)}`);
+      console.warn(`[r2-cleanup] skipped unreadable snapshot ${object.key}: ${errorMessage(error)}`);
     }
   }
 
@@ -51,10 +30,10 @@ async function main() {
   });
   const duplicateSnapshotKeys = duplicateSnapshots.map((record) => record.key);
 
-  const potentialObjects = await listObjects("potential/");
+  const potentialObjects = await listObjects(archive, "potential/");
   const duplicateIds = new Set(duplicateSnapshots.map((record) => record.snapshot.id));
   const potentialKeys = potentialObjects
-    .map((object) => object.Key)
+    .map((object) => object.key)
     .filter((key) => key && duplicateIds.has(snapshotIdFromPotentialKey(key)));
 
   const keysToDelete = [...new Set([...duplicateSnapshotKeys, ...potentialKeys])];
@@ -88,50 +67,21 @@ async function main() {
     return;
   }
 
-  await deleteObjects(keysToDelete);
+  await deleteArchiveObjects(archive, keysToDelete);
   console.log(`[r2-cleanup] deleted ${keysToDelete.length} duplicate snapshot/potential objects.`);
 }
 
-async function listObjects(prefix) {
+async function listObjects(archive, prefix) {
   const objects = [];
-  let continuationToken;
-  do {
-    const output = await client.send(
-      new ListObjectsV2Command({
-        Bucket: bucket,
-        Prefix: prefix,
-        MaxKeys: 1000,
-        ContinuationToken: continuationToken,
-      }),
-    );
-    objects.push(...(output.Contents || []));
-    continuationToken = output.IsTruncated ? output.NextContinuationToken : undefined;
-  } while (continuationToken);
+  for await (const object of listArchiveObjects(archive, prefix)) objects.push(object);
   return objects;
 }
 
-async function readSnapshot(key) {
-  const output = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
-  if (!output.Body) return null;
-  const value = JSON.parse(Buffer.from(await output.Body.transformToByteArray()).toString("utf8"));
-  if (!isSnapshot(value)) return null;
-  return value;
-}
-
-async function deleteObjects(keys) {
-  for (let index = 0; index < keys.length; index += 1000) {
-    const batch = keys.slice(index, index + 1000);
-    if (batch.length === 0) continue;
-    const output = await client.send(
-      new DeleteObjectsCommand({
-        Bucket: bucket,
-        Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
-      }),
-    );
-    if (output.Errors?.length) {
-      throw new Error(`R2 rejected ${output.Errors.length} delete operations.`);
-    }
-  }
+async function readSnapshot(archive, key) {
+  const object = await archive.get(key);
+  if (!object) return null;
+  const value = await object.json();
+  return isSnapshot(value) ? value : null;
 }
 
 function isSnapshot(value) {
@@ -186,7 +136,7 @@ function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
-main().catch((error) => {
+withArchive(main).catch((error) => {
   console.error(`[r2-cleanup] ${errorMessage(error)}`);
   process.exitCode = 1;
 });
