@@ -10,6 +10,7 @@ import { calculateWeightedPotential } from "../src/lib/potential";
 import { compareSnapshots } from "../src/lib/history-diff";
 import type { Env, JobMessage } from "../src/lib/environment";
 import type { B50Snapshot } from "../src/lib/types";
+import { publicAssetUrl } from "../src/lib/r2";
 
 let env: Env, sent: JobMessage[];
 function fixture(id = "2026-10-14-first", potential = 12.5): B50Snapshot {
@@ -85,6 +86,66 @@ describe("authentication and API",()=>{
     const response=await api(env,request('/api/media/charts/test.jpg','GET',cookie));
     expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toContain('private');
     expect((await api(env,request('/api/media/snapshots/secret.json','GET',cookie))).status).toBe(400);
+  });
+  it("caches media bytes without bypassing authentication, and supports conditional GET and HEAD", async () => {
+    const cookie = await login();
+    const key = `charts/${crypto.randomUUID()}.jpg`, path = `/api/media/${key}`;
+    expect(publicAssetUrl(env, key)).toBe(path);
+    await env.ARCHIVE.put(key, 'cached-image', { httpMetadata: { contentType: 'image/jpeg' } });
+    const get = vi.spyOn(env.ARCHIVE, 'get');
+    const first = await api(env, request(path, 'GET', cookie));
+    expect(first.headers.get('x-media-cache')).toBe('MISS');
+    expect(first.headers.get('cache-control')).toBe('private, max-age=3600');
+    expect(first.headers.get('cdn-cache-control')).toBe('no-store');
+    expect(first.headers.get('vary')).toBe('Cookie');
+    expect(await first.text()).toBe('cached-image');
+    const second = await api(env, request(`${path}?ignored=1`, 'GET', cookie));
+    expect(second.headers.get('x-media-cache')).toBe('HIT');
+    expect(await second.text()).toBe('cached-image');
+    expect(get).toHaveBeenCalledTimes(1);
+    const conditional = request(path, 'GET', cookie);
+    conditional.headers.set('if-none-match', `"other", W/${first.headers.get('etag')}`);
+    const unchanged = await api(env, conditional);
+    expect(unchanged.status).toBe(304);
+    expect(await unchanged.text()).toBe('');
+    const changed = request(path, 'GET', cookie);
+    changed.headers.set('if-none-match', '"old"');
+    expect((await api(env, changed)).status).toBe(200);
+    const head = await api(env, request(path, 'HEAD', cookie));
+    expect(head.status).toBe(200);
+    expect(head.headers.get('content-length')).toBe('12');
+    expect(await head.text()).toBe('');
+    expect(get).toHaveBeenCalledTimes(1);
+    expect((await api(env, request(path))).status).toBe(401);
+    await api(env, request('/api/auth/logout', 'POST', cookie));
+    expect((await api(env, conditional)).status).toBe(401);
+  });
+  it("handles cold HEAD, cold conditional requests and rejects missing or invalid media", async () => {
+    const cookie = await login(), key = `potential/${crypto.randomUUID()}.png`;
+    const path = `/api/media/${key}`;
+    const object = await env.ARCHIVE.put(key, 'image');
+    const head = await api(env, request(path, 'HEAD', cookie));
+    expect(head.status).toBe(200); expect(await head.text()).toBe('');
+    const conditional = request(path, 'GET', cookie);
+    conditional.headers.set('if-none-match', object!.httpEtag);
+    expect((await api(env, conditional)).status).toBe(304);
+    for (const invalid of ['snapshots/private.json', 'charts/%2E%2E%2Fsecret', 'charts/%ZZ', 'characters/a%5Cb']) {
+      const response = await api(env, request(`/api/media/${invalid}`, 'GET', cookie));
+      expect(response.status).toBe(400);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+    }
+    const missing = await api(env, request(`/api/media/charts/${crypto.randomUUID()}`, 'GET', cookie));
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get('cache-control')).toBe('no-store');
+  });
+  it("serves R2 images even when edge cache is unavailable", async () => {
+    const cookie = await login(), key = `characters/${crypto.randomUUID()}.png`;
+    await env.ARCHIVE.put(key, 'image');
+    vi.spyOn(caches, 'open').mockRejectedValue(new Error('cache unavailable'));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const response = await api(env, request(`/api/media/${key}`, 'GET', cookie));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('image');
   });
 });
 describe("D1 archives",()=>{

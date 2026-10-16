@@ -3,10 +3,10 @@ import { authenticated, login, logout, requireSameOrigin } from "./auth";
 import { AppError, errorResponse } from "./errors";
 import { getDashboardPayload } from "./dashboard";
 import { enqueue, getJob, retryJob } from "./jobs";
-import { getAsset } from "./r2";
+import { serveMedia } from "./media";
 import { Store } from "./store";
 
-export async function api(env: Env, request: Request): Promise<Response> {
+export async function api(env: Env, request: Request, background?: Pick<ExecutionContext, "waitUntil">): Promise<Response> {
   try {
     const path = new URL(request.url).pathname;
     if (path === "/api/auth/login") { method(request, "POST"); return await login(env, request); }
@@ -33,12 +33,7 @@ export async function api(env: Env, request: Request): Promise<Response> {
       return json(match[2] ? await retryJob(env, match[1]) : await getJob(env, match[1]), match[2] ? 202 : 200);
     }
     if (path.startsWith("/api/media/")) {
-      method(request, "GET");
-      const key = decodeURIComponent(path.slice("/api/media/".length));
-      if (!key || key.includes("..") || key.startsWith("/") || key.includes("\\") || !/^(charts|characters|potential)\//.test(key))
-        throw new AppError("无效的媒体路径。", 400, "INVALID_ASSET_KEY");
-      const asset = await getAsset(env, key);
-      return new Response(asset.body, { headers: { "content-type": asset.httpMetadata?.contentType || "application/octet-stream", "cache-control": "private, max-age=3600", etag: asset.httpEtag, "x-content-type-options": "nosniff" } });
+      return await serveMedia(env, request, background);
     }
     throw new AppError("接口不存在。", 404, "NOT_FOUND");
   } catch (error) {

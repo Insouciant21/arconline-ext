@@ -16,7 +16,6 @@
   },
   "vars": {
     "APP_ORIGIN": "https://arc.example.com",
-    "R2_PUBLIC_URL": "https://arcaea-assets.example.com",
     "SCHEDULE_TIMEZONE": "Asia/Shanghai",
     "DAILY_SYNC_ENABLED": "true",
     "MUTATIONS_ENABLED": "true"
