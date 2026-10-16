@@ -59,9 +59,19 @@ pnpm run deploy
 
 必须使用 `pnpm run deploy`，因为 `pnpm deploy` 是 pnpm 自身的工作区命令。
 
-`DAILY_SYNC_ENABLED` 控制每日同步；`MUTATIONS_ENABLED=false` 用于维护期间拒绝新任务并暂停处理。`R2_PUBLIC_URL` 为空时，图片通过需要登录的 `/api/media/*` 读取。页面和业务响应不进入公共缓存。
+`env.ARCHIVE`、`env.DB`、`env.JOBS` 是 Cloudflare 注入的资源绑定对象，不是 `.env` 字符串配置。线上代码使用 `ARCHIVE.get()/put()`、`DB.prepare()`、`JOBS.send()` 直接访问资源；绑定在 `wrangler.jsonc` 声明，运行时不需要 Cloudflare API Token。管理口令和 Lowiro 账号仍通过 Workers Secrets 保存。
+
+`DAILY_SYNC_ENABLED` 控制每日同步；`MUTATIONS_ENABLED=false` 用于维护期间拒绝新任务并暂停处理。`R2_PUBLIC_URL` 仅决定浏览器图片地址，不参与 R2 鉴权；为空时，图片通过需要登录的 `/api/media/*` 读取。页面和业务响应不进入公共缓存。
 
 更换 Cloudflare 账户时，需要先创建 D1、`arcaea-jobs` 和 `arcaea-jobs-failed` 队列，更新账户、数据库及 bucket 配置。首次上线先保持每日同步关闭，在 `workers.dev` 完成验证后再启用正式自定义域名。
+
+## GitHub 自动构建与部署
+
+GitHub Actions 在推送 `main` 或提交目标为 `main` 的 PR 时自动运行 `pnpm run ci:build`，依次执行类型检查、测试和 Astro 构建；不需要生产凭据。工作流位于 `.github/workflows/ci.yml`，仅请求仓库读取权限。
+
+Cloudflare 自动上线使用 Workers Builds，需在控制台完成一次仓库连接：构建命令同样为 `pnpm run ci:build`，通过后执行 `pnpm run ci:deploy`。部署步骤先应用尚未执行的 D1 迁移，再发布 Worker；数据库迁移必须兼容部署前仍在运行的版本。
+
+一次性连接步骤及权限要求见 [部署运行手册](docs/deployment.md#github-自动部署)。构建器使用 `.node-version` 指定的 Node.js 24，pnpm 版本固定为 `package.json` 中的 `10.33.2`。生产口令留在 Worker Secrets，检查和构建不需要访问生产数据。
 
 ## API
 
@@ -84,28 +94,30 @@ pnpm run deploy
 
 ## 旧数据迁移
 
+先执行 `pnpm exec wrangler login`；维护工具从 `wrangler.jsonc` 读取账户和 `ARCHIVE` 桶绑定，连接真实的云端资源。登录需要 R2 和 D1 的相应权限。本地 `pnpm dev` 仍使用本地模拟器。
+
 导入支持多个旧 `data/` 目录和 R2 快照，按快照 ID、官网原始时间点去重。同 ID 的不同成绩会中止导入并生成冲突报告；媒体完整的版本优先。再次导入时同时合并 D1 已有数据，避免覆盖新记录。
 
 ```bash
 # 只读预览，生成数量、逐快照指纹和每日 PTT 报告
-node --env-file=.env scripts/migrate-legacy.mjs --data /path/to/old/data --data ./data --r2
+node scripts/migrate-legacy.mjs --data /path/to/old/data --data ./data --r2
 
 # 导入并核对 D1 的快照指纹与每日 PTT
-node --env-file=.env scripts/migrate-legacy.mjs --data /path/to/old/data --data ./data --r2 --apply
+node scripts/migrate-legacy.mjs --data /path/to/old/data --data ./data --r2 --apply
 
 # 再次核对（不写入 D1）
-node --env-file=.env scripts/migrate-legacy.mjs --data /path/to/old/data --r2 --verify
+node scripts/migrate-legacy.mjs --data /path/to/old/data --r2 --verify
 
 # 补齐原来只在本地保存的 R2 快照，默认 dry-run
-node --env-file=.env scripts/backfill-r2.mjs
-node --env-file=.env scripts/backfill-r2.mjs --apply
+node scripts/backfill-r2.mjs
+node scripts/backfill-r2.mjs --apply
 
 # 导出为旧服务器可读取的 JSON/CSV 格式
 pnpm export:legacy --out .migration/cloud-export
 ```
 
-`--sql .migration/import.sql` 可生成 SQL，再用 `wrangler d1 execute DB --local --file ...` 导入本地模拟器。原数据和 R2 对象不会被删除。只有 CLI 导入、备份补齐和旧清理工具需要 S3 密钥，Worker 不需要。
+`--sql .migration/import.sql` 可生成 SQL，再用 `wrangler d1 execute DB --local --file ...` 导入本地模拟器。原数据和 R2 对象不会被删除。迁移、备份补齐和清理脚本通过 Wrangler 的 `getPlatformProxy` 建立远程 R2 绑定，调用同样的 `list/get/put/delete` API，不需要 AWS SDK 或 S3 密钥。
 
-R2 重复清理仍为默认 dry-run：`node --env-file=.env scripts/cleanup-r2.mjs`。不应在导入或同步进行时执行带 `--apply` 的清理。
+R2 重复清理仍为默认 dry-run：`node scripts/cleanup-r2.mjs`。不应在导入或同步进行时执行带 `--apply` 的清理。
 
 上线切换和回滚步骤见 [部署运行手册](docs/deployment.md)。
