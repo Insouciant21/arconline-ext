@@ -61,7 +61,11 @@ pnpm run deploy
 
 `env.ARCHIVE`、`env.DB`、`env.JOBS` 是 Cloudflare 注入的资源绑定对象，不是 `.env` 字符串配置。线上代码使用 `ARCHIVE.get()/put()`、`DB.prepare()`、`JOBS.send()` 直接访问资源；绑定在 `wrangler.jsonc` 声明，运行时不需要 Cloudflare API Token。管理口令和 Lowiro 账号仍通过 Workers Secrets 保存。
 
-`DAILY_SYNC_ENABLED` 控制每日同步；`MUTATIONS_ENABLED=false` 用于维护期间拒绝新任务并暂停处理。`R2_PUBLIC_URL` 仅决定浏览器图片地址，不参与 R2 鉴权；为空时，图片通过需要登录的 `/api/media/*` 读取。页面和业务响应不进入公共缓存。
+`DAILY_SYNC_ENABLED` 控制每日同步；`MUTATIONS_ENABLED=false` 用于维护期间拒绝新任务并暂停处理。生产环境不配置 `R2_PUBLIC_URL`，图片默认通过同域 `/api/media/*` 读取；保留该可选配置用于切回公开媒体域名，不参与 R2 鉴权。
+
+媒体请求先校验登录，再读取 Worker Cache API，未命中时通过 `ARCHIVE` binding 流式读取 R2。边缘缓存和浏览器私有缓存均为一小时，支持 ETag / `If-None-Match` 返回 `304`、HEAD 请求；浏览器响应带 `Vary: Cookie`，避免切换会话复用缓存。`X-Media-Cache: HIT/MISS` 可用于诊断。缓存异常时回退 R2，错误响应不缓存。边缘缓存仅在正式自定义域名上验证，`workers.dev` 不提供相同缓存行为；缓存可能在 TTL 前被淘汰。同 key 对象更新最多延迟一小时可见。页面和业务响应不进入公共缓存。
+
+原 R2 公共域名仍然保留，切换应用图片地址不会关闭该入口；Worker 的登录控制仅适用于同域接口。
 
 更换 Cloudflare 账户时，需要先创建 D1、`arcaea-jobs` 和 `arcaea-jobs-failed` 队列，更新账户、数据库及 bucket 配置。首次上线先保持每日同步关闭，在 `workers.dev` 完成验证后再启用正式自定义域名。
 
@@ -87,7 +91,7 @@ Cloudflare 自动上线使用 Workers Builds，需在控制台完成一次仓库
 | GET | `/api/jobs/{id}` | 查询阶段、进度、结果或错误 |
 | POST | `/api/jobs/{id}/retry` | 从检查点重试失败任务 |
 | POST | `/api/cron/daily` | 登录后的手动同步入口；GET 返回 405 |
-| GET | `/api/media/{key}` | 代理曲绘、角色和潜力图，使用私有缓存 |
+| GET / HEAD | `/api/media/{key}` | 登录后读取曲绘、角色和潜力图；内部边缘缓存、浏览器私有缓存、ETag 条件请求 |
 | GET | `/api/health` | 检查 D1 可访问及 R2 绑定配置 |
 
 除登录入口外，业务接口均需会话；修改状态的请求必须来自同一 origin。原 NextAuth 协议接口和 Cookie 不再使用，迁移后需要重新登录。

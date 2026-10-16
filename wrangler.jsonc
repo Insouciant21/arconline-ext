@@ -16,7 +16,6 @@
   },
   "vars": {
     "APP_ORIGIN": "https://arc.moeblue.top",
-    "R2_PUBLIC_URL": "https://arcaea-assets.moeblue.top",
     "SCHEDULE_TIMEZONE": "Asia/Shanghai",
     "DAILY_SYNC_ENABLED": "true",
     "MUTATIONS_ENABLED": "true"
