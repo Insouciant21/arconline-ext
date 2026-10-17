@@ -77,7 +77,7 @@ GitHub Actions 在推送 `main` 或提交目标为 `main` 的 PR 时自动运行
 
 Cloudflare 自动上线使用 Workers Builds，需在控制台完成一次仓库连接：构建命令同样为 `pnpm run ci:build`，通过后执行 `pnpm run ci:deploy`。部署步骤先应用尚未执行的 D1 迁移，再发布 Worker；数据库迁移必须兼容部署前仍在运行的版本。
 
-一次性连接步骤及权限要求见 [部署运行手册](docs/deployment.md#github-自动部署)。构建器使用 `.node-version` 指定的 Node.js 24，pnpm 版本固定为 `package.json` 中的 `10.33.2`。生产口令留在 Worker Secrets，检查和构建不需要访问生产数据。
+在 Cloudflare 控制台的 Worker → Settings → Builds 中连接 GitHub 仓库，生产分支选择 `main`，根目录为 `/`，构建及部署命令使用上文配置。构建器使用 `.node-version` 指定的 Node.js 24，pnpm 版本固定为 `package.json` 中的 `10.33.2`。生产口令留在 Worker Secrets，检查和构建不需要访问生产数据。
 
 ## API
 
@@ -125,5 +125,3 @@ pnpm export:legacy --out .migration/cloud-export
 `--sql .migration/import.sql` 可生成 SQL，再用 `wrangler d1 execute DB --local --file ...` 导入本地模拟器。原数据和 R2 对象不会被删除。迁移、备份补齐和清理脚本通过 Wrangler 的 `getPlatformProxy` 建立远程 R2 绑定，调用同样的 `list/get/put/delete` API，不需要 AWS SDK 或 S3 密钥。
 
 R2 重复清理仍为默认 dry-run：`node scripts/cleanup-r2.mjs`。不应在导入或同步进行时执行带 `--apply` 的清理。
-
-上线切换和回滚步骤见 [部署运行手册](docs/deployment.md)。
