@@ -1,5 +1,7 @@
 # Arcaea Online Extension
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Insouciant21/arconline-ext)
+
 单账号 Arcaea B50 与潜力值归档面板，使用 Astro、React 和 Cloudflare Workers。正式入口为 <https://arc.moeblue.top>。
 
 ## 架构
