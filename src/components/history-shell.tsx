@@ -30,12 +30,6 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
         <div>
           <p className="section-kicker"><HistoryIcon size={13} /> ARCHIVE TIMELINE</p>
           <h1 id="history-title">历史 <span>/ B50 SNAPSHOTS</span></h1>
-          <p className="history-description">从D1 归档与 R2 备份中查看每次获取的 B50 快照。</p>
-        </div>
-        <div className="history-overview" aria-label="历史数据概览">
-          <HistoryMetric label="SNAPSHOTS" value={String(initialData.snapshots.length)} />
-          <HistoryMetric label="D1 ARCHIVE" value={String(initialData.sources.d1Count)} />
-          <HistoryMetric label="R2 BACKUP" value={initialData.sources.r2Available ? String(initialData.sources.r2Count) : "—"} />
         </div>
       </section>
 
@@ -79,10 +73,6 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
           </div>
     </main>
   );
-}
-
-function HistoryMetric({ label, value }: { label: string; value: string }) {
-  return <div><span>{label}</span><strong>{value}</strong></div>;
 }
 
 function HistoryIndexButton({
