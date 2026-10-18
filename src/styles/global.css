@@ -1410,15 +1410,6 @@ body::before {
 .history-status-processing { color: var(--orange); }
 .history-status-failed { color: var(--danger); }
 
-#potential.section-block {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-#potential.section-block::before { display: none; }
-
 .history-view-tabs {
   display: flex;
   gap: 8px;

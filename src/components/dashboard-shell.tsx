@@ -165,34 +165,32 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
         ) : <EmptyState title="还没有 B50 快照" description="使用玩家信息卡片下方的获取器登录 Lowiro，抓取并保存首份快照。" />}
       </section>
 
-      <section className="section-block" id="potential">
-        <Card className="chart-panel">
-          <CardHeader className="section-header">
-            <div><p className="section-kicker">LONGITUDINAL VIEW</p><CardTitle>潜力值折线</CardTitle><CardDescription>官网历史与本地快照 · 每日最高潜力值</CardDescription></div>
-            <Badge><Activity size={12} /> {data.history.length ? "TRACKING" : "READY"}</Badge>
-          </CardHeader>
-          <CardContent>
-            <div className="chart-toolbar">
-              <Button size="sm" variant="secondary" onClick={importHistory} disabled={action !== "idle"}>{action === "importing" ? <Loader2 className="spin" size={13} /> : <CloudDownload size={13} />}{action === "importing" ? "同步中…" : "同步官网历史"}</Button>
-              <div className="range-tabs" role="tablist" aria-label="折线图时间范围">
-                {chartRanges.map((range) => (
-                  <button
-                    key={range.label}
-                    type="button"
-                    role="tab"
-                    aria-selected={chartRange === range.label}
-                    className={chartRange === range.label ? "active" : ""}
-                    onClick={() => setChartRange(range.label)}
-                  >
-                    {range.label}
-                  </button>
-                ))}
-              </div>
+      <Card className="chart-panel" id="potential">
+        <CardHeader className="section-header">
+          <div><p className="section-kicker">LONGITUDINAL VIEW</p><CardTitle>潜力值折线</CardTitle><CardDescription>官网历史与本地快照 · 每日最高潜力值</CardDescription></div>
+          <Badge><Activity size={12} /> {data.history.length ? "TRACKING" : "READY"}</Badge>
+        </CardHeader>
+        <CardContent>
+          <div className="chart-toolbar">
+            <Button size="sm" variant="secondary" onClick={importHistory} disabled={action !== "idle"}>{action === "importing" ? <Loader2 className="spin" size={13} /> : <CloudDownload size={13} />}{action === "importing" ? "同步中…" : "同步官网历史"}</Button>
+            <div className="range-tabs" role="tablist" aria-label="折线图时间范围">
+              {chartRanges.map((range) => (
+                <button
+                  key={range.label}
+                  type="button"
+                  role="tab"
+                  aria-selected={chartRange === range.label}
+                  className={chartRange === range.label ? "active" : ""}
+                  onClick={() => setChartRange(range.label)}
+                >
+                  {range.label}
+                </button>
+              ))}
             </div>
-            <PttChart key={chartRange} points={chartPoints} />
-          </CardContent>
-        </Card>
-      </section>
+          </div>
+          <PttChart key={chartRange} points={chartPoints} />
+        </CardContent>
+      </Card>
 
       <footer className="footer"><span>ARCAEA B50 STUDIO</span><span>LOWIRO DATA PIPELINE · {data.scheduler.timezone}</span><span>D1 ARCHIVE / R2 MEDIA</span></footer>
 
