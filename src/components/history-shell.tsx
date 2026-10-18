@@ -69,7 +69,7 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
         </section>
       )}
 
-      <footer className="footer"><span>ARCAEA B50 STUDIO</span></footer>
+      <footer className="footer"><span>ArcOnline Extension</span></footer>
           </div>
     </main>
   );

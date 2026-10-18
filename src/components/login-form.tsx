@@ -44,11 +44,11 @@ export function LoginForm({
     <main className="auth-shell">
       <div className="auth-grid" aria-hidden="true" />
       <header className="auth-topbar">
-        <a className="brand" href="/login" aria-label="Arcaea B50 Studio">
+        <a className="brand" href="/login" aria-label="ArcOnline Extension">
           <BrandMark />
           <span className="brand-lockup">
-            <strong className="brand-wordmark">ARCAEA</strong>
-            <small>B50 STUDIO</small>
+            <strong className="brand-wordmark">ArcOnline</strong>
+            <small>EXTENSION</small>
           </span>
         </a>
         <span className="auth-locale">ZH / EN</span>

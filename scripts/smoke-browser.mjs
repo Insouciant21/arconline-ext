@@ -23,7 +23,9 @@ try {
  await page.locator('.score-grid .score-card').first().waitFor({timeout:30000});
  const cards=await page.locator('.score-grid .score-card').count();if(cards!==50)throw new Error(`Expected 50 scores, got ${cards}`);
  const footerText=await page.locator('.footer').innerText();
- if(footerText!=='ARCAEA B50 STUDIO')throw new Error(`Footer should only show the product name: ${JSON.stringify(footerText)}`);
+ if(footerText!=='ArcOnline Extension')throw new Error(`Footer should only show the product name: ${JSON.stringify(footerText)}`);
+ if(await page.title()!=='ArcOnline Extension')throw new Error(`Unexpected page title: ${await page.title()}`);
+ if((await page.locator('.topbar .brand').innerText()).replace(/\s+/g,' ').trim()!=='ArcOnline EXTENSION')throw new Error('Sidebar brand name is stale');
  if(await page.getByText('CHART CONSTANT').count())throw new Error('Chart-constant label should be hidden');
  const avatarShape=await page.locator('.profile-avatar').evaluate(element=>{const style=getComputedStyle(element);return{clipPath:style.clipPath,filter:style.filter,background:style.backgroundColor,borderRadius:style.borderRadius,boxShadow:style.boxShadow,width:element.getBoundingClientRect().width,height:element.getBoundingClientRect().height}});
  if(avatarShape.clipPath!=='none'||avatarShape.filter!=='none'||avatarShape.background!=='rgba(0, 0, 0, 0)'||avatarShape.borderRadius!=='0px'||avatarShape.boxShadow!=='none')throw new Error(`Profile avatar should have no decorative frame: ${JSON.stringify(avatarShape)}`);
