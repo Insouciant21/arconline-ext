@@ -1,11 +1,19 @@
+"use client";
+
+import * as React from "react";
 import { ClipboardList } from "lucide-react";
 import { AppNavigation } from "@/components/app-navigation";
 import type { LogEntry, LogsPayload } from "@/lib/types";
 import { formatRelativeDate } from "@/lib/utils";
 
+const PAGE_SIZE = 30;
+
 export function LogsShell({ initialData }: { initialData: LogsPayload }) {
   const b50Count = initialData.entries.filter((entry) => entry.scope === "b50").length;
   const mediaCount = initialData.entries.filter((entry) => entry.scope === "media").length;
+  const [visibleCount, setVisibleCount] = React.useState(PAGE_SIZE);
+  const visibleEntries = initialData.entries.slice(0, visibleCount);
+  const remaining = initialData.entries.length - visibleEntries.length;
 
   return (
     <main className="app-shell logs-shell">
@@ -32,8 +40,16 @@ export function LogsShell({ initialData }: { initialData: LogsPayload }) {
             <strong>{String(initialData.entries.length).padStart(3, "0")}</strong>
           </div>
           <div className="logs-list">
-            {initialData.entries.map((entry) => <LogRow key={entry.id} entry={entry} />)}
+            {visibleEntries.map((entry) => <LogRow key={entry.id} entry={entry} />)}
           </div>
+          {remaining > 0 ? (
+            <div className="logs-list-footer">
+              <span>已显示 {visibleEntries.length} / {initialData.entries.length} 条</span>
+              <button type="button" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}>
+                显示更多 <strong>{Math.min(PAGE_SIZE, remaining)}</strong> 条
+              </button>
+            </div>
+          ) : null}
         </section>
       ) : (
         <section className="logs-empty">
