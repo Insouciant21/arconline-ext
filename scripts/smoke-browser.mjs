@@ -20,6 +20,18 @@ try {
  await signIn();
  await page.locator('.score-grid .score-card').first().waitFor({timeout:30000});
  const cards=await page.locator('.score-grid .score-card').count();if(cards!==50)throw new Error(`Expected 50 scores, got ${cards}`);
+ const cardLayout=await page.locator('.score-card').evaluateAll(items=>{
+  const rectangles=items.map(card=>card.getBoundingClientRect());
+  const firstTop=rectangles[0].top;
+  const rowIndices=rectangles.map((rect,index)=>Math.abs(rect.top-firstTop)<1?index:-1).filter(index=>index>=0);
+  const scoreBottoms=rowIndices.map(index=>items[index].querySelector('.score-result-row').getBoundingClientRect().bottom);
+  const dateBottoms=rowIndices.map(index=>items[index].querySelector('.score-detail-row').getBoundingClientRect().bottom);
+  const cardBottoms=rowIndices.map(index=>rectangles[index].bottom);
+  const art=items[0].querySelector('.score-art').getBoundingClientRect();
+  return {artWidth:art.width,artHeight:art.height,rowCards:rowIndices.length,scoreSpread:Math.max(...scoreBottoms)-Math.min(...scoreBottoms),dateSpread:Math.max(...dateBottoms)-Math.min(...dateBottoms),cardSpread:Math.max(...cardBottoms)-Math.min(...cardBottoms)};
+ });
+ if(Math.abs(cardLayout.artWidth-cardLayout.artHeight)>1)throw new Error(`Expected square cover art, got ${cardLayout.artWidth}x${cardLayout.artHeight}`);
+ if(cardLayout.scoreSpread>1||cardLayout.dateSpread>1||cardLayout.cardSpread>1)throw new Error(`Score cards are not bottom aligned: ${JSON.stringify(cardLayout)}`);
  await expect(page.getByRole('link',{name:'历史',exact:true})).toBeInViewport({ratio:1});
  await expect(page.getByRole('button',{name:'退出',exact:true})).toBeInViewport({ratio:1});
  await page.evaluate(()=>scrollTo(0,document.documentElement.scrollHeight/2));await page.waitForTimeout(100);

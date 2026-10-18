@@ -1063,7 +1063,7 @@ body::before {
 .score-art {
   position: relative;
   grid-row: 1;
-  aspect-ratio: 1.48 / 1;
+  aspect-ratio: 1 / 1;
   min-height: 0;
   overflow: hidden;
   background: linear-gradient(135deg, var(--violet), var(--magenta));
@@ -1132,15 +1132,32 @@ body::before {
 
 .score-card-body {
   grid-row: 2;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   padding: 14px 13px 12px;
 }
 
 .score-title-row {
   display: grid;
-  grid-template-columns: minmax(0,1fr) auto;
+  grid-template-areas:
+    "label rating"
+    "title title";
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
-  gap: 10px;
+  gap: 0 10px;
+}
+
+.score-title-copy { display: contents; }
+
+.score-title-copy > span { grid-area: label; }
+
+.score-title-copy h3 { grid-area: title; }
+
+.score-rating {
+  grid-area: rating;
+  align-self: start;
+  justify-self: end;
 }
 
 .score-title-copy span,
@@ -1185,7 +1202,8 @@ body::before {
   align-items: flex-end;
   justify-content: flex-start;
   gap: 7px;
-  margin-top: 13px;
+  margin-top: auto;
+  padding-top: 13px;
 }
 
 .score-number strong {
@@ -1201,6 +1219,7 @@ body::before {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-height: 29px;
   margin-top: 11px;
   padding-top: 9px;
   border-top: 1px solid var(--line);
@@ -1208,7 +1227,10 @@ body::before {
   font-family: var(--font-heading);
   font-size: 9px;
   letter-spacing: .08em;
+  white-space: nowrap;
 }
+
+.score-detail-row > span:first-child { flex: none; }
 
 .score-detail-row b {
   margin-right: 6px;
@@ -1219,9 +1241,11 @@ body::before {
 }
 
 .score-song-id {
-  max-width: 45%;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   color: var(--muted-2);
+  text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
