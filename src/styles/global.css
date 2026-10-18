@@ -160,7 +160,7 @@ input:focus-visible {
 .sign-out-button svg { width: 17px; height: 17px; }
 
 .history-intro { display: flex; align-items: flex-end; justify-content: space-between; gap: 30px; padding: 42px 5% 0; }
-.history-intro .section-kicker { margin-bottom: 11px; }
+.history-intro .section-kicker { margin-bottom: 16px; font-size: 11px; }
 .history-intro h1 { margin: 0; color: var(--ink); font-size: 36px; line-height: 1; letter-spacing: -.05em; }
 .history-intro h1 span { margin-left: 12px; color: var(--muted-2); font-size: 11px; letter-spacing: .18em; }
 .history-description { margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
@@ -225,7 +225,7 @@ input:focus-visible {
 .history-empty p { margin: 8px 0 0; font-size: 11px; }
 .history-empty-link { margin-top: 17px; padding: 9px 15px; color: #fff; background: var(--purple); clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 50%, calc(100% - 7px) 100%, 7px 100%, 0 50%); font-family: var(--font-heading); font-size: 10px; letter-spacing: .1em; }
 .logs-intro { display: flex; align-items: flex-end; justify-content: space-between; gap: 30px; padding: 42px 5% 0; }
-.logs-intro .section-kicker { margin-bottom: 11px; }
+.logs-intro .section-kicker { margin-bottom: 16px; font-size: 11px; }
 .logs-intro h1 { margin: 0; color: var(--ink); font-size: 36px; line-height: 1; letter-spacing: -.05em; }
 .logs-intro h1 span { margin-left: 12px; color: var(--muted-2); font-size: 11px; letter-spacing: .18em; }
 .logs-description { margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
@@ -1993,4 +1993,17 @@ body::before {
   font-family: var(--font-heading);
   font-size: 8px;
   letter-spacing: .14em;
+}
+
+/* Keep page-level kicker copy separate from the primary heading. */
+.history-intro h1 > .section-kicker,
+.logs-intro h1 > .section-kicker {
+  margin: 0;
+}
+
+.history-intro .section-kicker,
+.logs-intro .section-kicker {
+  margin: 0 0 18px;
+  font-size: 11px;
+  line-height: 1.4;
 }
