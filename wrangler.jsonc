@@ -15,16 +15,15 @@
     "enabled": true
   },
   "vars": {
-    "APP_ORIGIN": "https://arc.moeblue.top",
     "SCHEDULE_TIMEZONE": "Asia/Shanghai",
-    "DAILY_SYNC_ENABLED": "true",
+    "DAILY_SYNC_ENABLED": "false",
     "MUTATIONS_ENABLED": "true"
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "arcaea-b50-studio",
-      "database_id": "149830b1-aaf6-4687-b77c-adb512dd5848",
+      "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "migrations"
     }
   ],
@@ -39,6 +38,10 @@
       {
         "binding": "JOBS",
         "queue": "arcaea-jobs"
+      },
+      {
+        "binding": "FAILED_JOBS",
+        "queue": "arcaea-jobs-failed"
       }
     ],
     "consumers": [
@@ -57,13 +60,5 @@
       "59 15 * * *",
       "*/5 * * * *"
     ]
-  },
-  "account_id": "1ae019b386ef6f4729670ebc50bb95b9",
-  "routes": [
-    {
-      "pattern": "arc.moeblue.top",
-      "zone_name": "moeblue.top",
-      "custom_domain": true
-    }
-  ]
+  }
 }

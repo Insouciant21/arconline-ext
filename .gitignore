@@ -22,3 +22,4 @@ dist/
 !.dev.vars.example
 .migration/
 /docs/
+/wrangler.production.jsonc

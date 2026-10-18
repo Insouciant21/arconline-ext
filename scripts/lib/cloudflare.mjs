@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readConfig, requireDatabase } from './deployment-config.mjs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
@@ -36,13 +36,13 @@ export async function cf(pathname, options = {}, retried = false) {
   return payload.result;
 }
 export async function configuration() {
-  // This repository keeps wrangler.jsonc JSON-compatible for deployment tools.
-  const config = JSON.parse(await readFile(new URL('../../wrangler.jsonc', import.meta.url), 'utf8'));
-  return { account: process.env.CLOUDFLARE_ACCOUNT_ID || config.account_id, database: config.d1_databases[0].database_id, config };
+  const config = readConfig();
+  return { account: process.env.CLOUDFLARE_ACCOUNT_ID || config.account_id, database: config.d1_databases?.find(item => item.binding === 'DB')?.database_id, config };
 }
 export async function query(sql, params = []) {
-  const { account, database } = await configuration();
-  if (!account || database.startsWith('00000000')) throw new Error('Configure account_id and database_id in wrangler.jsonc first');
+  const { account, config } = await configuration();
+  const database = requireDatabase(config);
+  if (!account) throw new Error('Set CLOUDFLARE_ACCOUNT_ID or account_id in the selected Wrangler config');
   const result = await cf(`/accounts/${account}/d1/database/${database}/query`, { method: 'POST', body: JSON.stringify({ sql, params }) });
   if (result.some(item => !item.success)) throw new Error('D1 query failed');
   return result[0]?.results || [];

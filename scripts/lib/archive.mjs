@@ -9,7 +9,7 @@ import { configuration } from './cloudflare.mjs';
 export async function withArchive(callback) {
   const { account, config } = await configuration();
   const binding = config.r2_buckets?.find(item => item.binding === 'ARCHIVE');
-  if (!account || !binding?.bucket_name) throw new Error('Configure account_id and the ARCHIVE binding in wrangler.jsonc');
+  if (!account || !binding?.bucket_name) throw new Error('Set CLOUDFLARE_ACCOUNT_ID (or account_id) and the ARCHIVE binding in the selected Wrangler config');
   const directory = await mkdtemp(path.join(tmpdir(), 'arcaea-r2-'));
   let platform;
   try {
