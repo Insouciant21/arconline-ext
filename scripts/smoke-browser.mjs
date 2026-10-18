@@ -22,6 +22,10 @@ try {
  const cards=await page.locator('.score-grid .score-card').count();if(cards!==50)throw new Error(`Expected 50 scores, got ${cards}`);
  await expect(page.getByRole('link',{name:'历史',exact:true})).toBeInViewport({ratio:1});
  await expect(page.getByRole('button',{name:'退出',exact:true})).toBeInViewport({ratio:1});
+ await page.evaluate(()=>scrollTo(0,document.documentElement.scrollHeight/2));await page.waitForTimeout(100);
+ const sidebarTop=await page.locator('.topbar').evaluate(element=>element.getBoundingClientRect().top);
+ if(Math.abs(sidebarTop)>1)throw new Error(`Sidebar did not remain sticky while scrolling (top ${sidebarTop}px)`);
+ await page.evaluate(()=>scrollTo(0,0));
  await page.getByRole('link',{name:'历史',exact:true}).click();await page.waitForURL('**/history');
  await page.locator('astro-island:not([ssr])').waitFor();await page.getByRole('button',{name:'对比两次历史'}).click();await page.getByRole('heading',{name:'历史对比',exact:true}).waitFor();
  await page.screenshot({path:'.migration/history-desktop.png',fullPage:true});
