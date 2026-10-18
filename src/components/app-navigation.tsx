@@ -1,4 +1,5 @@
 import { ClipboardList, History, LayoutDashboard } from "lucide-react";
+import { BrandMark } from "@/components/brand-mark";
 import { SignOutButton } from "@/components/sign-out-button";
 
 type Page = "overview" | "history" | "logs";
@@ -13,6 +14,7 @@ export function AppNavigation({ current }: { current: Page }) {
   return (
     <header className="topbar">
       <a className="brand" href="/" aria-label="Arcaea B50 Studio">
+        <BrandMark />
         <span className="brand-lockup">
           <strong className="brand-wordmark">ARCAEA</strong>
           <small>B50 STUDIO</small>

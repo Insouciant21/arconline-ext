@@ -665,22 +665,21 @@ body::before {
 
 .brand {
   display: grid;
-  grid-template-columns: 34px minmax(0,1fr);
+  grid-template-columns: 40px minmax(0,1fr);
   align-items: center;
   gap: 10px;
   min-height: 40px;
-  padding: 0 8px 20px;
+  padding: 0 8px 22px;
   color: var(--ink);
   letter-spacing: .04em;
 }
 
-.brand::before {
-  content: "";
-  width: 34px;
-  height: 34px;
-  border: 2px solid var(--violet);
-  background: linear-gradient(135deg, rgba(99,84,184,.18), rgba(143,52,130,.12));
-  clip-path: polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
+.brand-mark {
+  display: block;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  filter: drop-shadow(0 5px 8px rgba(73, 56, 139, .18));
 }
 
 .brand-lockup {
@@ -1714,11 +1713,11 @@ body::before {
   }
 
   .brand {
-    grid-template-columns: 30px minmax(0,1fr);
+    grid-template-columns: 34px minmax(0,1fr);
     padding: 0;
   }
 
-  .brand::before { width: 30px; height: 30px; }
+  .brand-mark { width: 34px; height: 34px; }
 
   .topbar-actions {
     display: flex;
