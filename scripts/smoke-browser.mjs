@@ -53,6 +53,8 @@ try {
  await page.evaluate(()=>scrollTo(0,0));
  await page.getByRole('link',{name:'历史',exact:true}).click();await page.waitForURL('**/history');
  await page.locator('astro-island:not([ssr])').waitFor();
+ const historyKickerGap=await page.locator('.history-intro .section-kicker').evaluate(kicker=>{const title=kicker.parentElement.querySelector('h1');return title.getBoundingClientRect().top-kicker.getBoundingClientRect().bottom});
+ if(historyKickerGap<17)throw new Error(`History heading gap is too small: ${historyKickerGap}px`);
  if(await page.locator('.history-overview').count())throw new Error('History summary metrics should be hidden');
  if(await page.getByText('从D1 归档与 R2 备份中查看每次获取的 B50 快照。').count())throw new Error('History description should be hidden');
  const historyAlignment=await page.evaluate(()=>{const tabs=document.querySelector('.history-view-tabs button').getBoundingClientRect();const index=document.querySelector('.history-index').getBoundingClientRect();const second=document.querySelectorAll('.history-view-tabs button')[1].getBoundingClientRect();return{firstLeft:tabs.left,indexLeft:index.left,firstWidth:tabs.width,secondWidth:second.width}});
@@ -60,7 +62,10 @@ try {
  await page.getByRole('button',{name:'对比两次历史'}).click();await page.getByRole('heading',{name:'历史对比',exact:true}).waitFor();
  await page.screenshot({path:'.migration/history-desktop.png',fullPage:true});
  await page.getByRole('link',{name:'日志',exact:true}).click();await page.waitForURL('**/logs');
- await page.locator('astro-island:not([ssr])').waitFor();await page.getByRole('button',{name:'退出',exact:true}).click();await page.waitForURL('**/login');
+ await page.locator('astro-island:not([ssr])').waitFor();
+ const logsKickerGap=await page.locator('.logs-intro .section-kicker').evaluate(kicker=>{const title=kicker.parentElement.querySelector('h1');return title.getBoundingClientRect().top-kicker.getBoundingClientRect().bottom});
+ if(logsKickerGap<17)throw new Error(`Logs heading gap is too small: ${logsKickerGap}px`);
+ await page.getByRole('button',{name:'退出',exact:true}).click();await page.waitForURL('**/login');
  await page.setViewportSize({width:390,height:844});
  await signIn();
  await page.locator('.score-grid .score-card').first().waitFor();await page.screenshot({path:'.migration/dashboard-mobile.png',fullPage:true});
