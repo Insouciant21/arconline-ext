@@ -13,13 +13,13 @@ import {
 export function ScoreCard({ score, rank }: { score: Best50Score; rank: number }) {
   const title = score.title.zh || score.title.en || score.title.ja || score.songId;
   const playedAt = score.timePlayed > 0 ? formatRelativeDate(score.timePlayed) : "—";
+  const chartConstant = chartConstantFromScore(score);
 
   return (
     <article className="score-card" aria-label={`${rank} ${title}`}>
       <div className="score-card-main">
-        <div className="score-potential">
-          <span className="score-label">CHART CONSTANT</span>
-          <strong>{chartConstantFromScore(score).toFixed(1)}</strong>
+        <div className="score-potential" aria-label={`谱面定数 ${chartConstant.toFixed(1)}`}>
+          <strong>{chartConstant.toFixed(1)}</strong>
           <DifficultyDiamond difficulty={score.difficulty} alias={score.difficultyAlias} />
         </div>
 

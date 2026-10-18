@@ -1124,12 +1124,6 @@ body::before {
   font-variant-numeric: tabular-nums;
 }
 
-.score-potential .score-label {
-  color: rgba(255,255,255,.78);
-  font-size: 8px;
-  letter-spacing: .06em;
-}
-
 .score-card-body {
   grid-row: 2;
   display: flex;
