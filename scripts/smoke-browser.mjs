@@ -65,6 +65,7 @@ try {
  await page.locator('astro-island:not([ssr])').waitFor();
  const logsKickerGap=await page.locator('.logs-intro .section-kicker').evaluate(kicker=>{const title=kicker.parentElement.querySelector('h1');return title.getBoundingClientRect().top-kicker.getBoundingClientRect().bottom});
  if(logsKickerGap<17)throw new Error(`Logs heading gap is too small: ${logsKickerGap}px`);
+ if(await page.locator('.logs-description').count())throw new Error('Logs description should be hidden');
  await page.getByRole('button',{name:'退出',exact:true}).click();await page.waitForURL('**/login');
  await page.setViewportSize({width:390,height:844});
  await signIn();

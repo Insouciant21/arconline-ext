@@ -24,7 +24,6 @@ export function LogsShell({ initialData }: { initialData: LogsPayload }) {
         <div>
           <p className="section-kicker"><ClipboardList size={13} /> SYSTEM LOG</p>
           <h1 id="logs-title">日志 <span>/ OPERATIONS</span></h1>
-          <p className="logs-description">记录 B50 获取与 MEDIA PROCESS 的状态，保留最近 500 条事件。</p>
         </div>
         <div className="logs-overview" aria-label="日志概览">
           <LogMetric label="EVENTS" value={String(initialData.entries.length)} />
