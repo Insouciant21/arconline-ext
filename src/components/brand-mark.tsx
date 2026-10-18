@@ -20,7 +20,6 @@ export function BrandMark() {
       <path d="M24 2.8 44 24 24 45.2 4 24 24 2.8Z" fill="url(#brand-crystal-a)" />
       <path d="M24 2.8 44 24 24 45.2V24L4 24 24 2.8Z" fill="url(#brand-crystal-b)" />
       <path d="M24 4.8v38.2M5.8 24h36.4" fill="none" stroke="#ffffff" strokeOpacity=".26" strokeWidth=".9" />
-      <path d="M14.4 33.2 24 12.4l9.6 20.8M18.4 25.2h11.2" fill="none" stroke="#ffffff" strokeOpacity=".9" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M24 2.8 44 24 24 45.2 4 24 24 2.8Z" fill="none" stroke="#ffffff" strokeOpacity=".34" strokeWidth="1" />
       <circle cx="35" cy="14" r="9" fill="url(#brand-crystal-glow)" />
       <circle cx="35" cy="14" r="2.2" fill="#e9fdff" />
