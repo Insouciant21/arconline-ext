@@ -1412,6 +1412,8 @@ body::before {
 
 #potential.section-block {
   border: 0;
+  padding: 0;
+  background: transparent;
   box-shadow: none;
 }
 

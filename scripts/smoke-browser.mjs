@@ -23,8 +23,8 @@ try {
  if(await page.getByText('CHART CONSTANT').count())throw new Error('Chart-constant label should be hidden');
  const avatarShape=await page.locator('.profile-avatar').evaluate(element=>{const style=getComputedStyle(element);return{clipPath:style.clipPath,filter:style.filter,background:style.backgroundColor,borderRadius:style.borderRadius,boxShadow:style.boxShadow,width:element.getBoundingClientRect().width,height:element.getBoundingClientRect().height}});
  if(avatarShape.clipPath!=='none'||avatarShape.filter!=='none'||avatarShape.background!=='rgba(0, 0, 0, 0)'||avatarShape.borderRadius!=='0px'||avatarShape.boxShadow!=='none')throw new Error(`Profile avatar should have no decorative frame: ${JSON.stringify(avatarShape)}`);
- const potentialFrame=await page.locator('#potential').evaluate(element=>({border:getComputedStyle(element).borderWidth,pseudoLine:getComputedStyle(element,'::before').display}));
- if(potentialFrame.border!=='0px'||potentialFrame.pseudoLine!=='none')throw new Error(`Potential section still has an outer frame: ${JSON.stringify(potentialFrame)}`);
+ const potentialFrame=await page.locator('#potential').evaluate(element=>{const style=getComputedStyle(element);return{border:style.borderWidth,padding:style.padding,background:style.backgroundColor,pseudoLine:getComputedStyle(element,'::before').display}});
+ if(potentialFrame.border!=='0px'||potentialFrame.padding!=='0px'||potentialFrame.background!=='rgba(0, 0, 0, 0)'||potentialFrame.pseudoLine!=='none')throw new Error(`Potential section still has an outer frame: ${JSON.stringify(potentialFrame)}`);
  if(await page.locator('#potential > .hexagon-title').count())throw new Error('Potential section should not show an outer title');
  await expect(page.getByText('LONGITUDINAL VIEW',{exact:true})).toBeVisible();
  const cardLayout=await page.locator('.score-card').evaluateAll(items=>{
