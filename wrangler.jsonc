@@ -15,9 +15,8 @@
     "enabled": true
   },
   "vars": {
-    "APP_ORIGIN": "https://arc.example.com",
     "SCHEDULE_TIMEZONE": "Asia/Shanghai",
-    "DAILY_SYNC_ENABLED": "true",
+    "DAILY_SYNC_ENABLED": "false",
     "MUTATIONS_ENABLED": "true"
   },
   "d1_databases": [
@@ -39,6 +38,10 @@
       {
         "binding": "JOBS",
         "queue": "arcaea-jobs"
+      },
+      {
+        "binding": "FAILED_JOBS",
+        "queue": "arcaea-jobs-failed"
       }
     ],
     "consumers": [
@@ -57,13 +60,5 @@
       "59 15 * * *",
       "*/5 * * * *"
     ]
-  },
-  "account_id": "00000000000000000000000000000000",
-  "routes": [
-    {
-      "pattern": "arc.example.com",
-      "zone_name": "example.com",
-      "custom_domain": true
-    }
-  ]
+  }
 }

@@ -8,14 +8,15 @@
     "preview": "astro preview",
     "typecheck": "astro check && tsc --noEmit",
     "test": "vitest run && node --test test/*.test.mjs",
-    "deploy": "pnpm build && wrangler deploy",
+    "deploy": "node scripts/deploy.mjs",
     "ci:build": "pnpm typecheck && pnpm test && pnpm build",
-    "ci:deploy": "pnpm db:migrate:remote && wrangler deploy",
-    "db:migrate": "wrangler d1 migrations apply DB --local",
-    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "ci:deploy": "node scripts/deploy.mjs",
+    "db:migrate": "wrangler d1 migrations apply DB --local --config wrangler.jsonc",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote --config wrangler.jsonc",
     "migrate:legacy": "node scripts/migrate-legacy.mjs",
     "export:legacy": "node scripts/export-legacy.mjs",
-    "test:browser": "node scripts/smoke-browser.mjs"
+    "test:browser": "node scripts/smoke-browser.mjs",
+    "deploy:production": "node scripts/deploy.mjs --config wrangler.production.jsonc"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.3.4",
@@ -51,5 +52,30 @@
       "sharp"
     ]
   },
-  "type": "module"
+  "type": "module",
+  "cloudflare": {
+    "bindings": {
+      "ADMIN_TOKEN": {
+        "description": "管理面板登录口令，请设置为足够长的随机字符串。"
+      },
+      "USERNAME": {
+        "description": "你的 Arcaea / Lowiro 账号邮箱。"
+      },
+      "PASSWD": {
+        "description": "你的 Arcaea / Lowiro 账号密码。"
+      },
+      "DB": {
+        "description": "保存快照、PTT 历史、会话及任务的 D1 数据库。"
+      },
+      "ARCHIVE": {
+        "description": "保存曲绘、角色图片和归档的私有 R2 桶，无需公开域名。"
+      },
+      "JOBS": {
+        "description": "后台同步任务队列。"
+      },
+      "FAILED_JOBS": {
+        "description": "重试次数耗尽后的死信队列。"
+      }
+    }
+  }
 }
