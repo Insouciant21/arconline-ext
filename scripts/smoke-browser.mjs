@@ -25,6 +25,8 @@ try {
  if(avatarShape.clipPath!=='none'||avatarShape.filter!=='none'||avatarShape.background!=='rgba(0, 0, 0, 0)'||avatarShape.borderRadius!=='0px'||avatarShape.boxShadow!=='none')throw new Error(`Profile avatar should have no decorative frame: ${JSON.stringify(avatarShape)}`);
  const potentialFrame=await page.locator('#potential').evaluate(element=>({border:getComputedStyle(element).borderWidth,pseudoLine:getComputedStyle(element,'::before').display}));
  if(potentialFrame.border!=='0px'||potentialFrame.pseudoLine!=='none')throw new Error(`Potential section still has an outer frame: ${JSON.stringify(potentialFrame)}`);
+ if(await page.locator('#potential > .hexagon-title').count())throw new Error('Potential section should not show an outer title');
+ await expect(page.getByText('LONGITUDINAL VIEW',{exact:true})).toBeVisible();
  const cardLayout=await page.locator('.score-card').evaluateAll(items=>{
   const rectangles=items.map(card=>card.getBoundingClientRect());
   const firstTop=rectangles[0].top;

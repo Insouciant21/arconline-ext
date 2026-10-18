@@ -166,7 +166,6 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
       </section>
 
       <section className="section-block" id="potential">
-        <div className="hexagon-title"><span>POTENTIAL / 潜力值</span></div>
         <Card className="chart-panel">
           <CardHeader className="section-header">
             <div><p className="section-kicker">LONGITUDINAL VIEW</p><CardTitle>潜力值折线</CardTitle><CardDescription>官网历史与本地快照 · 每日最高潜力值</CardDescription></div>
