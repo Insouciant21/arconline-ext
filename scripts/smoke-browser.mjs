@@ -1,4 +1,4 @@
-import { chromium } from '@playwright/test';
+import { chromium, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { parseEnv } from 'node:util';
 const origin=process.env.SMOKE_ORIGIN || 'http://127.0.0.1:4321';
@@ -20,6 +20,8 @@ try {
  await signIn();
  await page.locator('.score-grid .score-card').first().waitFor({timeout:30000});
  const cards=await page.locator('.score-grid .score-card').count();if(cards!==50)throw new Error(`Expected 50 scores, got ${cards}`);
+ await expect(page.getByRole('link',{name:'历史',exact:true})).toBeInViewport({ratio:1});
+ await expect(page.getByRole('button',{name:'退出',exact:true})).toBeInViewport({ratio:1});
  await page.getByRole('link',{name:'历史',exact:true}).click();await page.waitForURL('**/history');
  await page.locator('astro-island:not([ssr])').waitFor();await page.getByRole('button',{name:'对比两次历史'}).click();await page.getByRole('heading',{name:'历史对比',exact:true}).waitFor();
  await page.screenshot({path:'.migration/history-desktop.png',fullPage:true});
