@@ -1,10 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Archive, ArrowLeft, Database, History as HistoryIcon } from "lucide-react";
+import { Archive, Database, History as HistoryIcon } from "lucide-react";
 import { ScoreCard } from "@/components/score-card";
 import { HistoryCompare } from "@/components/history-compare";
-import { SignOutButton } from "@/components/sign-out-button";
+import { AppNavigation } from "@/components/app-navigation";
 import type { B50Snapshot, HistoryPayload } from "@/lib/types";
 import { formatRelativeDate } from "@/lib/utils";
 
@@ -23,24 +23,7 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
 
   return (
     <main className="app-shell history-shell">
-      <header className="topbar">
-        <a className="brand" href="/" aria-label="Arcaea B50 Studio">
-          <span className="brand-lockup">
-            <strong className="brand-wordmark">ARCAEA</strong>
-            <small>B50 STUDIO</small>
-          </span>
-        </a>
-        <div className="topbar-actions">
-          <a className="history-nav-link" href="/">
-            <ArrowLeft size={15} />
-            概览
-          </a>
-          <a className="history-nav-link" href="/logs">
-            日志
-          </a>
-          <SignOutButton />
-        </div>
-      </header>
+      <AppNavigation current="history" />
       <div className="app-content">
 
       <section className="history-intro" aria-labelledby="history-title">

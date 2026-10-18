@@ -1,5 +1,5 @@
-import { ArrowLeft, ClipboardList, History as HistoryIcon } from "lucide-react";
-import { SignOutButton } from "@/components/sign-out-button";
+import { ClipboardList } from "lucide-react";
+import { AppNavigation } from "@/components/app-navigation";
 import type { LogEntry, LogsPayload } from "@/lib/types";
 import { formatRelativeDate } from "@/lib/utils";
 
@@ -9,25 +9,7 @@ export function LogsShell({ initialData }: { initialData: LogsPayload }) {
 
   return (
     <main className="app-shell logs-shell">
-      <header className="topbar">
-        <a className="brand" href="/" aria-label="Arcaea B50 Studio">
-          <span className="brand-lockup">
-            <strong className="brand-wordmark">ARCAEA</strong>
-            <small>B50 STUDIO</small>
-          </span>
-        </a>
-        <div className="topbar-actions">
-          <a className="history-nav-link" href="/">
-            <ArrowLeft size={15} />
-            概览
-          </a>
-          <a className="history-nav-link" href="/history">
-            <HistoryIcon size={14} />
-            历史
-          </a>
-          <SignOutButton />
-        </div>
-      </header>
+      <AppNavigation current="logs" />
       <div className="app-content">
 
       <section className="logs-intro" aria-labelledby="logs-title">

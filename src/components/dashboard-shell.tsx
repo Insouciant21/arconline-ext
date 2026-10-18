@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { PttChart } from "@/components/ptt-chart";
 import { ScoreCard } from "@/components/score-card";
-import { SignOutButton } from "@/components/sign-out-button";
+import { AppNavigation } from "@/components/app-navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -107,23 +107,7 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
 
   return (
     <main className="app-shell">
-      <header className="topbar">
-        <a className="brand" href="#overview" aria-label="Arcaea B50 Studio">
-          <span className="brand-lockup">
-            <strong className="brand-wordmark">ARCAEA</strong>
-            <small>B50 STUDIO</small>
-          </span>
-        </a>
-        <div className="topbar-actions">
-          <a className="history-nav-link" href="/history">
-            历史
-          </a>
-          <a className="history-nav-link" href="/logs">
-            日志
-          </a>
-          <SignOutButton />
-        </div>
-      </header>
+      <AppNavigation current="overview" />
       <div className="app-content">
 
       <section className="profile-section" id="overview" aria-label="玩家信息">
