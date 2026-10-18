@@ -863,9 +863,11 @@ body::before {
   height: 54px;
   overflow: hidden;
   color: #fff;
-  background: linear-gradient(135deg, var(--violet), var(--teal));
-  clip-path: polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
+  border-radius: 4px;
+  background: var(--surface-soft);
+  clip-path: none;
   box-shadow: none;
+  filter: none;
 }
 
 .profile-copy {
@@ -1844,11 +1846,14 @@ body::before {
 
 @media (max-width: 370px) {
   .profile-card {
-    grid-template-columns: 88px minmax(0, 1fr);
-    grid-template-areas: "potential copy";
+    grid-template-columns: 80px 34px minmax(0, 1fr);
+    grid-template-areas: "potential avatar copy";
+    gap: 8px;
   }
 
-  .profile-avatar { display: none; }
+  .profile-avatar { width: 34px; height: 34px; }
+  .profile-potential { width: 80px; height: 92px; }
+  .profile-copy h2 { font-size: 17px; }
 }
 
 /* ===== Option B refinement ===== */
