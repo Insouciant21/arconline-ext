@@ -17,8 +17,8 @@ try {
   await page.waitForURL(origin+'/',{timeout:30000});
  }
  await page.goto(origin+'/');await page.waitForURL('**/login**');
- const loginMark=await page.locator('.auth-topbar .brand-mark').evaluate(element=>({box:element.getBoundingClientRect().width,paths:element.querySelectorAll('path').length,circles:element.querySelectorAll('circle').length}));
- if(loginMark.box<30||loginMark.paths<4||loginMark.circles<2)throw new Error(`Brand mark failed to render: ${JSON.stringify(loginMark)}`);
+ const loginMark=await page.locator('.auth-topbar .brand-mark').evaluate(element=>{const style=getComputedStyle(element);return{box:element.getBoundingClientRect().width,paths:element.querySelectorAll('path').length,circles:element.querySelectorAll('circle').length,background:style.backgroundColor,clipPath:style.clipPath}});
+ if(loginMark.box<30||loginMark.paths<4||loginMark.circles<2||loginMark.background!=='rgba(0, 0, 0, 0)'||loginMark.clipPath!=='none')throw new Error(`Brand mark failed to render: ${JSON.stringify(loginMark)}`);
  await signIn();
  await page.locator('.score-grid .score-card').first().waitFor({timeout:30000});
  const cards=await page.locator('.score-grid .score-card').count();if(cards!==50)throw new Error(`Expected 50 scores, got ${cards}`);
