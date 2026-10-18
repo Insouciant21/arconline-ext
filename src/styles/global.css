@@ -228,7 +228,6 @@ input:focus-visible {
 .logs-intro .section-kicker { margin-bottom: 16px; font-size: 11px; }
 .logs-intro h1 { margin: 0; color: var(--ink); font-size: 36px; line-height: 1; letter-spacing: -.05em; }
 .logs-intro h1 span { margin-left: 12px; color: var(--muted-2); font-size: 11px; letter-spacing: .18em; }
-.logs-description { margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .logs-overview { display: grid; grid-template-columns: repeat(3, minmax(78px, 1fr)); min-width: 290px; border-left: 1px solid var(--line); }
 .logs-overview > div { padding: 0 15px; border-right: 1px solid var(--line); }
 .logs-overview > div:last-child { border-right: 0; }
