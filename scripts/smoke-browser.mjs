@@ -21,6 +21,8 @@ try {
  await page.locator('.score-grid .score-card').first().waitFor({timeout:30000});
  const cards=await page.locator('.score-grid .score-card').count();if(cards!==50)throw new Error(`Expected 50 scores, got ${cards}`);
  if(await page.getByText('CHART CONSTANT').count())throw new Error('Chart-constant label should be hidden');
+ const avatarShape=await page.locator('.profile-avatar').evaluate(element=>({clipPath:getComputedStyle(element).clipPath,filter:getComputedStyle(element).filter,width:element.getBoundingClientRect().width,height:element.getBoundingClientRect().height}));
+ if(avatarShape.clipPath!=='none'||avatarShape.filter!=='none')throw new Error(`Profile avatar should use a normal frame: ${JSON.stringify(avatarShape)}`);
  const cardLayout=await page.locator('.score-card').evaluateAll(items=>{
   const rectangles=items.map(card=>card.getBoundingClientRect());
   const firstTop=rectangles[0].top;
