@@ -41,6 +41,7 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
           <SignOutButton />
         </div>
       </header>
+      <div className="app-content">
 
       <section className="history-intro" aria-labelledby="history-title">
         <div>
@@ -92,6 +93,7 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
       )}
 
       <footer className="footer"><span>ARCAEA B50 STUDIO</span><span>D1 ARCHIVE · R2 BACKUP</span><span>HISTORY / SNAPSHOTS</span></footer>
+          </div>
     </main>
   );
 }

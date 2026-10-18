@@ -28,6 +28,7 @@ export function LogsShell({ initialData }: { initialData: LogsPayload }) {
           <SignOutButton />
         </div>
       </header>
+      <div className="app-content">
 
       <section className="logs-intro" aria-labelledby="logs-title">
         <div>
@@ -62,6 +63,7 @@ export function LogsShell({ initialData }: { initialData: LogsPayload }) {
       )}
 
       <footer className="footer"><span>ARCAEA B50 STUDIO</span><span>B50 FETCH · MEDIA PROCESS</span><span>D1 SYSTEM LOG</span></footer>
+          </div>
     </main>
   );
 }
