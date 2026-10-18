@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { KeyRound, Loader2, Sparkles } from "lucide-react";
+import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 
 export function LoginForm({
@@ -44,6 +45,7 @@ export function LoginForm({
       <div className="auth-grid" aria-hidden="true" />
       <header className="auth-topbar">
         <a className="brand" href="/login" aria-label="Arcaea B50 Studio">
+          <BrandMark />
           <span className="brand-lockup">
             <strong className="brand-wordmark">ARCAEA</strong>
             <small>B50 STUDIO</small>
