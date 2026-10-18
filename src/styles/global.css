@@ -1422,7 +1422,7 @@ body::before {
   display: flex;
   gap: 8px;
   margin: 0 0 20px;
-  padding: 0 20px;
+  padding: 0 21px;
 }
 
 .history-view-tabs button {

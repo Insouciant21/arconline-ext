@@ -48,7 +48,7 @@ try {
  if(await page.locator('.history-overview').count())throw new Error('History summary metrics should be hidden');
  if(await page.getByText('从D1 归档与 R2 备份中查看每次获取的 B50 快照。').count())throw new Error('History description should be hidden');
  const historyAlignment=await page.evaluate(()=>{const tabs=document.querySelector('.history-view-tabs button').getBoundingClientRect();const index=document.querySelector('.history-index').getBoundingClientRect();const second=document.querySelectorAll('.history-view-tabs button')[1].getBoundingClientRect();return{firstLeft:tabs.left,indexLeft:index.left,firstWidth:tabs.width,secondWidth:second.width}});
- if(Math.abs(historyAlignment.firstLeft-historyAlignment.indexLeft)>1)throw new Error(`History tabs are not aligned with the snapshot panel: ${JSON.stringify(historyAlignment)}`);
+ if(Math.abs(historyAlignment.firstLeft-historyAlignment.indexLeft)>0.5)throw new Error(`History tabs are not aligned with the snapshot panel: ${JSON.stringify(historyAlignment)}`);
  await page.getByRole('button',{name:'对比两次历史'}).click();await page.getByRole('heading',{name:'历史对比',exact:true}).waitFor();
  await page.screenshot({path:'.migration/history-desktop.png',fullPage:true});
  await page.getByRole('link',{name:'日志',exact:true}).click();await page.waitForURL('**/logs');
