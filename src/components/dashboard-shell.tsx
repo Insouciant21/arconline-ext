@@ -124,6 +124,7 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
           <SignOutButton />
         </div>
       </header>
+      <div className="app-content">
 
       <section className="profile-section" id="overview" aria-label="玩家信息">
         <div className="profile-card">
@@ -215,6 +216,7 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
       <Dialog open={logOpen} onOpenChange={setLogOpen}>
         <DialogContent><DialogTitle>{error ? "事务未完成" : lastAction === "import" ? "官网历史已同步" : lastAction === "retry" ? "MEDIA PROCESS 重试" : "B50 已获取"}</DialogTitle><DialogDescription>{error || message}</DialogDescription><div className={error ? "dialog-result error" : "dialog-result success"}>{error ? <RefreshCw size={18} /> : <Check size={18} />}<span>{error || message}</span></div></DialogContent>
       </Dialog>
+          </div>
     </main>
   );
 }
