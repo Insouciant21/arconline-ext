@@ -1677,7 +1677,7 @@ body::before {
 .footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
   margin: 0;
   padding: 16px 0 0;
@@ -1847,7 +1847,7 @@ body::before {
     padding-bottom: 14px;
   }
 
-  .footer { flex-direction: column; align-items: flex-start; }
+  .footer { flex-direction: row; align-items: center; }
 }
 
 @media (max-width: 370px) {
