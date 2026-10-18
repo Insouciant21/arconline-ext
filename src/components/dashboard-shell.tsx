@@ -192,7 +192,7 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
         </CardContent>
       </Card>
 
-      <footer className="footer"><span>ARCAEA B50 STUDIO</span><span>LOWIRO DATA PIPELINE · {data.scheduler.timezone}</span><span>D1 ARCHIVE / R2 MEDIA</span></footer>
+      <footer className="footer"><span>ARCAEA B50 STUDIO</span></footer>
 
       <Dialog open={logOpen} onOpenChange={setLogOpen}>
         <DialogContent><DialogTitle>{error ? "事务未完成" : lastAction === "import" ? "官网历史已同步" : lastAction === "retry" ? "MEDIA PROCESS 重试" : "B50 已获取"}</DialogTitle><DialogDescription>{error || message}</DialogDescription><div className={error ? "dialog-result error" : "dialog-result success"}>{error ? <RefreshCw size={18} /> : <Check size={18} />}<span>{error || message}</span></div></DialogContent>

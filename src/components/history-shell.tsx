@@ -69,7 +69,7 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
         </section>
       )}
 
-      <footer className="footer"><span>ARCAEA B50 STUDIO</span><span>D1 ARCHIVE · R2 BACKUP</span><span>HISTORY / SNAPSHOTS</span></footer>
+      <footer className="footer"><span>ARCAEA B50 STUDIO</span></footer>
           </div>
     </main>
   );
