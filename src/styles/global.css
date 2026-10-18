@@ -691,9 +691,9 @@ body::before {
 
 .brand-wordmark {
   color: var(--ink);
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 800;
-  letter-spacing: .08em;
+  letter-spacing: .035em;
   line-height: 1;
 }
 

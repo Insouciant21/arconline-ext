@@ -13,11 +13,11 @@ const links = [
 export function AppNavigation({ current }: { current: Page }) {
   return (
     <header className="topbar">
-      <a className="brand" href="/" aria-label="Arcaea B50 Studio">
+      <a className="brand" href="/" aria-label="ArcOnline Extension">
         <BrandMark />
         <span className="brand-lockup">
-          <strong className="brand-wordmark">ARCAEA</strong>
-          <small>B50 STUDIO</small>
+          <strong className="brand-wordmark">ArcOnline</strong>
+          <small>EXTENSION</small>
         </span>
       </a>
       <nav className="topbar-actions" aria-label="主导航">
