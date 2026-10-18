@@ -21,8 +21,10 @@ try {
  await page.locator('.score-grid .score-card').first().waitFor({timeout:30000});
  const cards=await page.locator('.score-grid .score-card').count();if(cards!==50)throw new Error(`Expected 50 scores, got ${cards}`);
  if(await page.getByText('CHART CONSTANT').count())throw new Error('Chart-constant label should be hidden');
- const avatarShape=await page.locator('.profile-avatar').evaluate(element=>({clipPath:getComputedStyle(element).clipPath,filter:getComputedStyle(element).filter,width:element.getBoundingClientRect().width,height:element.getBoundingClientRect().height}));
- if(avatarShape.clipPath!=='none'||avatarShape.filter!=='none')throw new Error(`Profile avatar should use a normal frame: ${JSON.stringify(avatarShape)}`);
+ const avatarShape=await page.locator('.profile-avatar').evaluate(element=>{const style=getComputedStyle(element);return{clipPath:style.clipPath,filter:style.filter,background:style.backgroundColor,borderRadius:style.borderRadius,boxShadow:style.boxShadow,width:element.getBoundingClientRect().width,height:element.getBoundingClientRect().height}});
+ if(avatarShape.clipPath!=='none'||avatarShape.filter!=='none'||avatarShape.background!=='rgba(0, 0, 0, 0)'||avatarShape.borderRadius!=='0px'||avatarShape.boxShadow!=='none')throw new Error(`Profile avatar should have no decorative frame: ${JSON.stringify(avatarShape)}`);
+ const potentialFrame=await page.locator('#potential').evaluate(element=>({border:getComputedStyle(element).borderWidth,pseudoLine:getComputedStyle(element,'::before').display}));
+ if(potentialFrame.border!=='0px'||potentialFrame.pseudoLine!=='none')throw new Error(`Potential section still has an outer frame: ${JSON.stringify(potentialFrame)}`);
  const cardLayout=await page.locator('.score-card').evaluateAll(items=>{
   const rectangles=items.map(card=>card.getBoundingClientRect());
   const firstTop=rectangles[0].top;
@@ -42,7 +44,12 @@ try {
  if(Math.abs(sidebarTop)>1)throw new Error(`Sidebar did not remain sticky while scrolling (top ${sidebarTop}px)`);
  await page.evaluate(()=>scrollTo(0,0));
  await page.getByRole('link',{name:'历史',exact:true}).click();await page.waitForURL('**/history');
- await page.locator('astro-island:not([ssr])').waitFor();await page.getByRole('button',{name:'对比两次历史'}).click();await page.getByRole('heading',{name:'历史对比',exact:true}).waitFor();
+ await page.locator('astro-island:not([ssr])').waitFor();
+ if(await page.locator('.history-overview').count())throw new Error('History summary metrics should be hidden');
+ if(await page.getByText('从D1 归档与 R2 备份中查看每次获取的 B50 快照。').count())throw new Error('History description should be hidden');
+ const historyAlignment=await page.evaluate(()=>{const tabs=document.querySelector('.history-view-tabs button').getBoundingClientRect();const index=document.querySelector('.history-index').getBoundingClientRect();const second=document.querySelectorAll('.history-view-tabs button')[1].getBoundingClientRect();return{firstLeft:tabs.left,indexLeft:index.left,firstWidth:tabs.width,secondWidth:second.width}});
+ if(Math.abs(historyAlignment.firstLeft-historyAlignment.indexLeft)>1)throw new Error(`History tabs are not aligned with the snapshot panel: ${JSON.stringify(historyAlignment)}`);
+ await page.getByRole('button',{name:'对比两次历史'}).click();await page.getByRole('heading',{name:'历史对比',exact:true}).waitFor();
  await page.screenshot({path:'.migration/history-desktop.png',fullPage:true});
  await page.getByRole('link',{name:'日志',exact:true}).click();await page.waitForURL('**/logs');
  await page.locator('astro-island:not([ssr])').waitFor();await page.getByRole('button',{name:'退出',exact:true}).click();await page.waitForURL('**/login');

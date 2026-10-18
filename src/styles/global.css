@@ -806,6 +806,8 @@ body::before {
   grid-template-columns: minmax(0,1fr) auto;
 }
 
+.history-intro { grid-template-columns: minmax(0, 1fr); }
+
 .history-layout {
   display: grid;
   grid-template-columns: 260px minmax(0,1fr);
@@ -861,10 +863,10 @@ body::before {
   place-items: center;
   width: 54px;
   height: 54px;
-  overflow: hidden;
+  overflow: visible;
   color: #fff;
-  border-radius: 4px;
-  background: var(--surface-soft);
+  border-radius: 0;
+  background: transparent;
   clip-path: none;
   box-shadow: none;
   filter: none;
@@ -1409,13 +1411,25 @@ body::before {
 .history-status-processing { color: var(--orange); }
 .history-status-failed { color: var(--danger); }
 
+#potential.section-block {
+  border: 0;
+  box-shadow: none;
+}
+
+#potential.section-block::before { display: none; }
+
 .history-view-tabs {
   display: flex;
   gap: 8px;
   margin: 0 0 20px;
+  padding: 0 20px;
 }
 
 .history-view-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 112px;
   min-height: 34px;
   padding: 0 16px;
   border: 1px solid var(--line);
