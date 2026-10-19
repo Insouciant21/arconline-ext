@@ -55,6 +55,7 @@ try {
  await page.locator('astro-island:not([ssr])').waitFor();
  const historyKickerGap=await page.locator('.history-intro .section-kicker').evaluate(kicker=>{const title=kicker.parentElement.querySelector('h1');return title.getBoundingClientRect().top-kicker.getBoundingClientRect().bottom});
  if(historyKickerGap<17)throw new Error(`History heading gap is too small: ${historyKickerGap}px`);
+ if(await page.getByText(/D1 ARCHIVE \+ R2 BACKUP/).count())throw new Error('Snapshot source label should be hidden');
  if(await page.locator('.history-overview').count())throw new Error('History summary metrics should be hidden');
  if(await page.getByText('从D1 归档与 R2 备份中查看每次获取的 B50 快照。').count())throw new Error('History description should be hidden');
  const historyAlignment=await page.evaluate(()=>{const tabs=document.querySelector('.history-view-tabs button').getBoundingClientRect();const index=document.querySelector('.history-index').getBoundingClientRect();const second=document.querySelectorAll('.history-view-tabs button')[1].getBoundingClientRect();return{firstLeft:tabs.left,indexLeft:index.left,firstWidth:tabs.width,secondWidth:second.width}});

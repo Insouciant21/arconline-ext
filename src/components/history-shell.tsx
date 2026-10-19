@@ -13,14 +13,6 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
   const [selectedId, setSelectedId] = React.useState(initialData.snapshots[0]?.id || "");
   const selected = initialData.snapshots.find((snapshot) => snapshot.id === selectedId) || initialData.snapshots[0];
 
-  const sourceLabel = initialData.sources.r2Available
-    ? initialData.sources.d1Count > 0
-      ? "D1 ARCHIVE + R2 BACKUP"
-      : "R2 BACKUP"
-    : initialData.sources.d1Count > 0
-      ? "D1 ARCHIVE"
-      : "NO ARCHIVE";
-
   return (
     <main className="app-shell history-shell">
       <AppNavigation current="history" />
@@ -58,7 +50,7 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
             </div>
           </aside>
 
-          <HistoryDetail snapshot={selected} sourceLabel={sourceLabel} />
+          <HistoryDetail snapshot={selected} />
         </section>
       ) : (
         <section className="history-empty">
@@ -105,7 +97,7 @@ function HistoryIndexButton({
   );
 }
 
-function HistoryDetail({ snapshot, sourceLabel }: { snapshot: B50Snapshot; sourceLabel: string }) {
+function HistoryDetail({ snapshot }: { snapshot: B50Snapshot }) {
   const top10 = snapshot.best50.slice(0, 10).reduce((sum, score) => sum + score.rating, 0);
   const rest40 = snapshot.best50.slice(10).reduce((sum, score) => sum + score.rating, 0);
   const mediaStatus = snapshot.mediaStatus || "complete";
@@ -116,7 +108,7 @@ function HistoryDetail({ snapshot, sourceLabel }: { snapshot: B50Snapshot; sourc
         <div>
           <p className="section-kicker"><Database size={13} /> SNAPSHOT DETAIL</p>
           <h2 id="snapshot-title">{formatRelativeDate(snapshot.fetchedAt)}</h2>
-          <p>{snapshot.trigger.toUpperCase()} FETCH · {sourceLabel}</p>
+          <p>{snapshot.trigger.toUpperCase()} FETCH</p>
         </div>
         <div className="history-detail-potential">
           <span>POTENTIAL / 潜力值</span>
