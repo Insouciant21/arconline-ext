@@ -1249,7 +1249,7 @@ body::before {
 .score-counts {
   grid-row: 3;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0,1fr));
+  grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr));
   border-top: 1px solid var(--line);
   background: var(--surface-soft);
 }
@@ -1280,6 +1280,7 @@ body::before {
 .score-count-pure strong { color: var(--violet); }
 .score-count-far strong { color: var(--orange); }
 .score-count-lost strong { color: var(--red); }
+.score-count-bonus { font-size: .85em; }
 
 .difficulty-diamond {
   display: grid;

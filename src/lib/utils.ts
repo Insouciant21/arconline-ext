@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import type { Best50Score } from "./types";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -18,6 +19,18 @@ export function formatNumber(value: number, maximumFractionDigits = 3) {
 
 export function formatScore(value: number) {
   return new Intl.NumberFormat("en-US").format(value);
+}
+
+export function shinyPureCount(score: Pick<Best50Score, "score" | "perfectCount" | "nearCount" | "missCount">) {
+  const { perfectCount, nearCount, missCount } = score;
+  if (![score.score, perfectCount, nearCount, missCount].every(value => Number.isInteger(value) && value >= 0)) return null;
+  const notes = perfectCount + nearCount + missCount;
+  if (notes === 0) return null;
+
+  // Each shiny PURE adds one point on top of the rounded-down judgement score.
+  const baseScore = Math.floor(5_000_000 * (2 * perfectCount + nearCount) / notes);
+  const shiny = score.score - baseScore;
+  return shiny >= 0 && shiny <= perfectCount ? shiny : null;
 }
 
 export function scoreModifier(score: number) {
