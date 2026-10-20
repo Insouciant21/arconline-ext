@@ -62,6 +62,22 @@ it("uses Workers-compatible fetch options for Lowiro login and images", async ()
   expect(fetch).toHaveBeenCalledTimes(3);
 });
 
+describe("security headers",()=>{
+  it("hardens browser and API responses without breaking redirects", async () => {
+    const page = await api(env, request("/api/auth/session"));
+    expect(page.status).toBe(401);
+    expect(page.headers.get("x-content-type-options")).toBe("nosniff");
+    const unauthorized = await api(env, request("/api/health"));
+    expect(unauthorized.status).toBe(401);
+    expect(unauthorized.headers.get("x-content-type-options")).toBe("nosniff");
+    const cookie = await login();
+    const allowed = await api(env, request("/api/health", "GET", cookie));
+    expect(allowed.status).toBe(200);
+    expect(allowed.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(allowed.headers.get("cache-control")).toBe("no-store");
+  });
+});
+
 describe("authentication and API",()=>{
   it("requires login, rejects cross-origin mutations, expires and revokes sessions",async()=>{
     expect((await api(env,request('/api/dashboard'))).status).toBe(401);
