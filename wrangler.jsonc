@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "arcaea-b50-studio",
+  "name": "arconline-ext",
   "main": "src/worker.ts",
   "compatibility_date": "2026-10-15",
   "compatibility_flags": [
@@ -22,7 +22,7 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "arcaea-b50-studio",
+      "database_name": "arconline-ext",
       "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "migrations"
     }
