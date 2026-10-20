@@ -6,7 +6,7 @@
 
 ## 架构
 
-- Astro 服务端页面与 API；原 React 成绩卡片、PTT 图表和历史对比作为交互组件保留。
+- Astro 提供服务端页面与 API，React 提供成绩卡片、PTT 图表和历史对比。
 - D1 保存快照、官网原始 PTT、图片缓存、谱面别名、日志、会话和后台任务。
 - R2 原生绑定保存 `snapshots/`、`charts/`、`characters/`、`potential/` 与 `exports/`。
 - Queues 分阶段处理同步、历史导入及媒体重试。关闭浏览器不会终止任务，页面每两秒更新进度。
@@ -30,12 +30,16 @@ pnpm dev
 
 开发使用本地 D1/R2/队列模拟器，默认不连接正式数据。`pnpm dev` 的输出会说明本机访问地址；Astro 7 可使用 `pnpm exec astro dev stop` 停止后台开发服务。
 
+`migrations/` 用于 D1 建表和数据库结构版本管理；`pnpm db:migrate` 初始化或更新本地数据库。它们是当前 Cloudflare 部署的一部分。
+
 ```bash
 pnpm typecheck
 pnpm test
 pnpm build
 pnpm preview
 ```
+
+自动测试覆盖当前 Worker 的鉴权、媒体缓存、D1 归档、队列重试和部署配置。测试使用本地模拟资源，不访问正式数据；故障恢复测试会捕获并校验预期错误日志。
 
 浏览器冒烟测试需要本地有至少两份历史快照：
 
@@ -44,7 +48,7 @@ pnpm exec playwright install chromium
 pnpm test:browser
 ```
 
-默认访问 `http://127.0.0.1:4321`、口令 `local-test-token`。可通过 `SMOKE_ORIGIN`、`SMOKE_TOKEN` 或 `SMOKE_ENV_FILE` 指定目标与凭据。截图写入已忽略的 `.migration/`。
+默认访问 `http://127.0.0.1:4321`、口令 `local-test-token`。可通过 `SMOKE_ORIGIN`、`SMOKE_TOKEN` 或 `SMOKE_ENV_FILE` 指定目标与凭据。截图写入已忽略的 `test-results/browser/`。`node scripts/smoke-api.mjs` 使用相同的目标与凭据配置检查 API。
 
 ## 配置与部署
 
@@ -60,7 +64,7 @@ pnpm test:browser
 | `USERNAME` | Arcaea / Lowiro 账号邮箱 |
 | `PASSWD` | Arcaea / Lowiro 账号密码 |
 
-部署流程会构建 Astro、应用 D1 迁移，然后发布 Worker。首次使用 `workers.dev` 地址登录并手动同步，确认正常后将 `DAILY_SYNC_ENABLED` 改为 `"true"` 再部署。默认图片由登录后的 Worker 直接提供，无需配置 R2 公共域名。
+部署流程会构建 Astro、更新 D1 数据库结构，然后发布 Worker。首次使用 `workers.dev` 地址登录并手动同步，确认正常后将 `DAILY_SYNC_ENABLED` 改为 `"true"` 再部署。默认图片由登录后的 Worker 直接提供，无需配置 R2 公共域名。
 
 Cloudflare 按其[部署按钮规则](https://developers.cloudflare.com/workers/platform/deploy-buttons/)创建资源并更新配置。请检查创建后的 `DB`、`ARCHIVE`、`JOBS`、`FAILED_JOBS` 绑定；队列消费者的 `queue` 应与 `JOBS` 对应，`dead_letter_queue` 应与 `FAILED_JOBS` 对应。如果在界面中改了队列名，也要同步这两个引用。
 
@@ -84,7 +88,7 @@ pnpm exec wrangler secret put PASSWD --config wrangler.jsonc
 pnpm run deploy
 ```
 
-`pnpm run deploy` 会重新构建、执行远程数据库迁移并部署，迁移失败时不会发布。未填写真实 D1 ID 时会提前停止。使用 `pnpm run deploy --dry-run` 只构建并验证打包，不执行迁移或发布。必须使用 `pnpm run deploy`，因为 `pnpm deploy` 是 pnpm 自身的工作区命令。
+`pnpm run deploy` 会重新构建、更新远程数据库结构并部署，数据库更新失败时不会发布。未填写真实 D1 ID 时会提前停止。使用 `pnpm run deploy --dry-run` 只构建并验证打包，不更新数据库或发布。必须使用 `pnpm run deploy`，因为 `pnpm deploy` 是 pnpm 自身的工作区命令。
 
 自定义域名可在自己的配置中添加 `routes`，由 Cloudflare 管理 DNS 与证书：
 
@@ -100,7 +104,7 @@ pnpm run deploy
 # 首次准备个人配置，然后填写自己的资源信息
 cp wrangler.jsonc wrangler.production.jsonc
 
-# 显式使用私有配置构建、迁移并部署
+# 显式使用私有配置构建并部署
 pnpm run deploy:production
 pnpm run deploy:production --dry-run
 
@@ -120,7 +124,7 @@ pnpm exec wrangler secret put ADMIN_TOKEN --config wrangler.production.jsonc
 
 GitHub Actions 在推送 `main` 或提交目标为 `main` 的 PR 时自动运行 `pnpm run ci:build`，依次执行类型检查、测试和 Astro 构建；不需要生产凭据。工作流位于 `.github/workflows/ci.yml`，仅请求仓库读取权限，不负责上线。
 
-Cloudflare 自动上线使用 Workers Builds：在 Worker → Settings → Builds 中连接自己的 GitHub 仓库，生产分支选择 `main`，根目录为 `/`，构建命令为 `pnpm run ci:build`，部署命令为 `pnpm run ci:deploy`。部署阶段会按所选配置重新构建，避免误用其他目标的旧产物，然后执行 D1 迁移并发布。数据库迁移必须兼容部署前仍在运行的版本。
+Cloudflare 自动上线使用 Workers Builds：在 Worker → Settings → Builds 中连接自己的 GitHub 仓库，生产分支选择 `main`，根目录为 `/`，构建命令为 `pnpm run ci:build`，部署命令为 `pnpm run ci:deploy`。部署阶段会按所选配置重新构建，避免误用其他目标的旧产物，然后更新 D1 数据库结构并发布。数据库结构更新必须兼容部署前仍在运行的版本。
 
 如果仓库保留通用模板，而实际生产配置未入库，需要在 Workers Builds 的**构建环境加密变量**中设置 `ARCAEA_CONFIG_JSON`，值为完整私有配置的 JSON 内容。工具会将其写入已忽略的 `wrangler.production.jsonc` 并选择该文件，供构建与部署共同使用。不要把此变量设置为 Worker 运行时 Secret，也不要同时设置 `ARCAEA_CONFIG`。普通 GitHub Actions 检查继续使用通用模板。
 
@@ -143,35 +147,4 @@ Cloudflare 自动上线使用 Workers Builds：在 Worker → Settings → Build
 | GET / HEAD | `/api/media/{key}` | 登录后读取曲绘、角色和潜力图；内部边缘缓存、浏览器私有缓存、ETag 条件请求 |
 | GET | `/api/health` | 检查 D1 可访问及 R2 绑定配置 |
 
-除登录入口外，业务接口均需会话；修改状态的请求必须来自同一 origin。原 NextAuth 协议接口和 Cookie 不再使用，迁移后需要重新登录。
-
-## 旧数据迁移
-
-先执行 `pnpm exec wrangler login`；维护工具从所选配置（默认 `wrangler.jsonc`）读取账户和 `ARCHIVE` 桶绑定，连接真实的云端资源。账户 ID 可填写在配置的 `account_id` 或环境变量 `CLOUDFLARE_ACCOUNT_ID` 中。登录需要 R2 和 D1 的相应权限。本地 `pnpm dev` 仍使用本地模拟器。
-
-导入支持多个旧 `data/` 目录和 R2 快照，按快照 ID、官网原始时间点去重。同 ID 的不同成绩会中止导入并生成冲突报告；媒体完整的版本优先。再次导入时同时合并 D1 已有数据，避免覆盖新记录。
-
-```bash
-# 使用私有生产配置时，先在当前终端显式选择
-export ARCAEA_CONFIG=wrangler.production.jsonc
-
-# 只读预览，生成数量、逐快照指纹和每日 PTT 报告
-node scripts/migrate-legacy.mjs --data /path/to/old/data --data ./data --r2
-
-# 导入并核对 D1 的快照指纹与每日 PTT
-node scripts/migrate-legacy.mjs --data /path/to/old/data --data ./data --r2 --apply
-
-# 再次核对（不写入 D1）
-node scripts/migrate-legacy.mjs --data /path/to/old/data --r2 --verify
-
-# 补齐原来只在本地保存的 R2 快照，默认 dry-run
-node scripts/backfill-r2.mjs
-node scripts/backfill-r2.mjs --apply
-
-# 导出为旧服务器可读取的 JSON/CSV 格式
-pnpm export:legacy --out .migration/cloud-export
-```
-
-`--sql .migration/import.sql` 可生成 SQL，再用 `wrangler d1 execute DB --local --file ...` 导入本地模拟器。原数据和 R2 对象不会被删除。迁移、备份补齐和清理脚本通过 Wrangler 的 `getPlatformProxy` 建立远程 R2 绑定，调用同样的 `list/get/put/delete` API，不需要 AWS SDK 或 S3 密钥。
-
-R2 重复清理仍为默认 dry-run：`node scripts/cleanup-r2.mjs`。不应在导入或同步进行时执行带 `--apply` 的清理。
+除登录入口外，业务接口均需会话；修改状态的请求必须来自同一 origin。

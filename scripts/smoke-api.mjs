@@ -1,8 +1,8 @@
 import {readFile} from 'node:fs/promises';
 import {parseEnv} from 'node:util';
-const origin=process.env.SMOKE_ORIGIN || 'https://arcaea-b50-studio.insouciant21.workers.dev';
-const secrets=parseEnv(await readFile(process.env.SMOKE_ENV_FILE || '.migration/server.env','utf8'));
-const login=await fetch(origin+'/api/auth/login',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({token:secrets.ADMIN_TOKEN})});
+const origin=process.env.SMOKE_ORIGIN || 'http://127.0.0.1:4321';
+const token=process.env.SMOKE_TOKEN || (process.env.SMOKE_ENV_FILE ? parseEnv(await readFile(process.env.SMOKE_ENV_FILE,'utf8')).ADMIN_TOKEN : 'local-test-token');
+const login=await fetch(origin+'/api/auth/login',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({token})});
 if(!login.ok)throw new Error(`Login ${login.status}: ${await login.text()}`);
 const cookie=login.headers.get('set-cookie').split(';')[0];
 async function request(path,method='GET') {

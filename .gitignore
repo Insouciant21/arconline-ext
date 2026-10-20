@@ -3,6 +3,7 @@ node_modules/
 *.tsbuildinfo
 out/
 coverage/
+test-results/
 .vercel/
 *.log
 .DS_Store

@@ -1,8 +1,10 @@
 import { chromium, expect } from '@playwright/test';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { parseEnv } from 'node:util';
 const origin=process.env.SMOKE_ORIGIN || 'http://127.0.0.1:4321';
 const token=process.env.SMOKE_TOKEN || (process.env.SMOKE_ENV_FILE ? parseEnv(await readFile(process.env.SMOKE_ENV_FILE,'utf8')).ADMIN_TOKEN : 'local-test-token');
+const artifactDirectory='test-results/browser';
+await mkdir(artifactDirectory,{recursive:true});
 const browser=await chromium.launch({headless:true});
 try {
  const context=await browser.newContext();const page=await context.newPage();const errors=[];
@@ -61,7 +63,7 @@ try {
  const historyAlignment=await page.evaluate(()=>{const tabs=document.querySelector('.history-view-tabs button').getBoundingClientRect();const index=document.querySelector('.history-index').getBoundingClientRect();const second=document.querySelectorAll('.history-view-tabs button')[1].getBoundingClientRect();return{firstLeft:tabs.left,indexLeft:index.left,firstWidth:tabs.width,secondWidth:second.width}});
  if(Math.abs(historyAlignment.firstLeft-historyAlignment.indexLeft)>0.5)throw new Error(`History tabs are not aligned with the snapshot panel: ${JSON.stringify(historyAlignment)}`);
  await page.getByRole('button',{name:'对比两次历史'}).click();await page.getByRole('heading',{name:'历史对比',exact:true}).waitFor();
- await page.screenshot({path:'.migration/history-desktop.png',fullPage:true});
+ await page.screenshot({path:`${artifactDirectory}/history-desktop.png`,fullPage:true});
  await page.getByRole('link',{name:'日志',exact:true}).click();await page.waitForURL('**/logs');
  await page.locator('astro-island:not([ssr])').waitFor();
  const logsKickerGap=await page.locator('.logs-intro .section-kicker').evaluate(kicker=>{const title=kicker.parentElement.querySelector('h1');return title.getBoundingClientRect().top-kicker.getBoundingClientRect().bottom});
@@ -70,7 +72,7 @@ try {
  await page.getByRole('button',{name:'退出',exact:true}).click();await page.waitForURL('**/login');
  await page.setViewportSize({width:390,height:844});
  await signIn();
- await page.locator('.score-grid .score-card').first().waitFor();await page.screenshot({path:'.migration/dashboard-mobile.png',fullPage:true});
+ await page.locator('.score-grid .score-card').first().waitFor();await page.screenshot({path:`${artifactDirectory}/dashboard-mobile.png`,fullPage:true});
  const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth);if(overflow)throw new Error('Mobile horizontal overflow');
  if(errors.length)throw new Error(errors.join('\n'));
  console.log(JSON.stringify({origin,cards,login:true,historyComparison:true,logout:true,mobile:true,pageErrors:errors.length}));
