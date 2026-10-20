@@ -30,28 +30,28 @@
   "r2_buckets": [
     {
       "binding": "ARCHIVE",
-      "bucket_name": "arcaea-assets"
+      "bucket_name": "arconline-ext"
     }
   ],
   "queues": {
     "producers": [
       {
         "binding": "JOBS",
-        "queue": "arcaea-jobs"
+        "queue": "arconline-ext-jobs"
       },
       {
         "binding": "FAILED_JOBS",
-        "queue": "arcaea-jobs-failed"
+        "queue": "arconline-ext-jobs-failed"
       }
     ],
     "consumers": [
       {
-        "queue": "arcaea-jobs",
+        "queue": "arconline-ext-jobs",
         "max_batch_size": 1,
         "max_batch_timeout": 1,
         "max_concurrency": 1,
         "max_retries": 3,
-        "dead_letter_queue": "arcaea-jobs-failed"
+        "dead_letter_queue": "arconline-ext-jobs-failed"
       }
     ]
   },
