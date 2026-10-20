@@ -1,4 +1,4 @@
-# Arcaea Online Extension
+# ArcOnline Extension
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Insouciant21/arconline-ext)
 
@@ -73,7 +73,7 @@ Cloudflare 按其[部署按钮规则](https://developers.cloudflare.com/workers/
 ```bash
 pnpm install --frozen-lockfile
 pnpm exec wrangler login
-pnpm exec wrangler d1 create arcaea-b50-studio
+pnpm exec wrangler d1 create arconline-ext
 pnpm exec wrangler r2 bucket create arcaea-assets
 pnpm exec wrangler queues create arcaea-jobs
 pnpm exec wrangler queues create arcaea-jobs-failed
