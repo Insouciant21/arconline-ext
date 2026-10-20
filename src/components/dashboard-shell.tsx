@@ -134,7 +134,7 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
             </p>
           </div>
           <div className="profile-potential">
-            <span>潜力值 / POTENTIAL</span>
+            <span>POTENTIAL</span>
             <strong>{latest ? latest.potential.toFixed(3) : "—"}</strong>
           </div>
         </div>
