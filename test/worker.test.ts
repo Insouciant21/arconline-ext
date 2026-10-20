@@ -98,10 +98,10 @@ describe("authentication and API",()=>{
     expect(first.headers.get('cache-control')).toBe('private, max-age=3600');
     expect(first.headers.get('cdn-cache-control')).toBe('no-store');
     expect(first.headers.get('vary')).toBe('Cookie');
-    expect(await first.text()).toBe('cached-image');
+    expect(new TextDecoder().decode(await first.arrayBuffer())).toBe('cached-image');
     const second = await api(env, request(`${path}?ignored=1`, 'GET', cookie));
     expect(second.headers.get('x-media-cache')).toBe('HIT');
-    expect(await second.text()).toBe('cached-image');
+    expect(new TextDecoder().decode(await second.arrayBuffer())).toBe('cached-image');
     expect(get).toHaveBeenCalledTimes(1);
     const conditional = request(path, 'GET', cookie);
     conditional.headers.set('if-none-match', `"other", W/${first.headers.get('etag')}`);
@@ -145,7 +145,7 @@ describe("authentication and API",()=>{
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const response = await api(env, request(`/api/media/${key}`, 'GET', cookie));
     expect(response.status).toBe(200);
-    expect(await response.text()).toBe('image');
+    expect(new TextDecoder().decode(await response.arrayBuffer())).toBe('image');
   });
 });
 describe("D1 archives",()=>{
@@ -182,16 +182,26 @@ describe("durable queue pipeline",()=>{
     expect(await archive!.json()).toEqual(expect.arrayContaining([expect.objectContaining({date:'2026-10-15',potential:12.8})]));
   });
   it("recovers an outbox send failure and a terminated lease",async()=>{
-    const send=env.JOBS.send as ReturnType<typeof vi.fn>;send.mockRejectedValueOnce(new Error('queue offline'));
-    const job=await enqueue(env,'import');expect(sent).toHaveLength(0);await recover(env);expect(sent.some(item=>item.jobId===job.jobId)).toBe(true);
+    const failure=new Error('queue offline');
+    const errorLog=vi.spyOn(console,'error').mockImplementation(()=>{});
+    const send=env.JOBS.send as ReturnType<typeof vi.fn>;send.mockRejectedValueOnce(failure);
+    const job=await enqueue(env,'import');expect(sent).toHaveLength(0);
+    expect(errorLog).toHaveBeenCalledTimes(1);
+    expect(errorLog).toHaveBeenCalledWith('[outbox] deferred',failure);
+    errorLog.mockRestore();
+    await recover(env);expect(sent.some(item=>item.jobId===job.jobId)).toBe(true);
     await env.DB.prepare("UPDATE jobs SET status='running',lease_token='abandoned',lease_until=0,attempts=1 WHERE id=?").bind(job.jobId).run();
     await recover(env);expect((await getJob(env,job.jobId)).status).toBe('queued');
   });
   it("checkpoints completed uploads and resumes failed media without refetching successes",async()=>{
-    const client=mockLowiro();client.getChartImage.mockRejectedValue(new Error('temporary image failure'));
+    const failure=new Error('temporary image failure');
+    const errorLog=vi.spyOn(console,'error').mockImplementation(()=>{});
+    const client=mockLowiro();client.getChartImage.mockRejectedValue(failure);
     const job=await enqueue(env,'sync');
     await deliver(sent.shift()!);await deliver(sent.shift()!);const media=sent.shift()!;
     for(let i=0;i<4;i++)await deliver(media);
+    expect(errorLog.mock.calls).toEqual(Array.from({length:4},()=>['[job] step failed',job.jobId,'media',failure]));
+    errorLog.mockRestore();
     expect((await getJob(env,job.jobId)).status).toBe('failed');expect(client.getOnlineImage).toHaveBeenCalledTimes(1);
     const state=await new Store(env).sql('SELECT state FROM jobs WHERE id=?',job.jobId).first<string>('state');
     expect((await new Store(env).snapshot(JSON.parse(state!).snapshotId))?.mediaStatus).toBe('failed');

@@ -23,7 +23,7 @@ test('CI config is explicitly materialized and conflicting selectors fail', t =>
   assert.throws(() => configPath({ ARCAEA_CONFIG: file, ARCAEA_CONFIG_JSON: '{}' }, root), /only one/);
 });
 
-test('unprovisioned templates cannot reach remote migration or deployment', () => {
+test('deployment requires a provisioned D1 database', () => {
   for (const config of [{}, { d1_databases: [] }, { d1_databases: [{ binding: 'DB', database_id: '00000000-0000-0000-0000-000000000000' }] }]) {
     assert.throws(() => requireDatabase(config), /Provision D1/);
   }

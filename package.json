@@ -13,8 +13,6 @@
     "ci:deploy": "node scripts/deploy.mjs",
     "db:migrate": "wrangler d1 migrations apply DB --local --config wrangler.jsonc",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote --config wrangler.jsonc",
-    "migrate:legacy": "node scripts/migrate-legacy.mjs",
-    "export:legacy": "node scripts/export-legacy.mjs",
     "test:browser": "node scripts/smoke-browser.mjs",
     "deploy:production": "node scripts/deploy.mjs --config wrangler.production.jsonc"
   },
