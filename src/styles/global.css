@@ -1847,12 +1847,12 @@ body::before {
   .score-card-main {
     grid-template-columns: clamp(72px, 32%, 128px) minmax(0, 1fr);
     grid-template-rows: auto;
-    align-items: center;
-    gap: 8px;
-    padding: 8px;
+    align-items: stretch;
+    gap: 0;
+    padding: 0;
   }
 
-  .score-art { grid-column: 1; grid-row: 1; }
+  .score-art { grid-column: 1; grid-row: 1; aspect-ratio: auto; }
 
   .score-potential { top: auto; right: 4px; bottom: 4px; gap: 4px; padding: 3px 4px; }
   .score-potential strong { font-size: 11px; }
@@ -1868,7 +1868,7 @@ body::before {
     grid-template-columns: minmax(0, 1fr) auto;
     align-content: center;
     gap: 6px 8px;
-    padding: 0;
+    padding: 8px;
   }
 
   .score-title-row { display: contents; }
