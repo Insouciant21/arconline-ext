@@ -7,6 +7,7 @@ const contentSecurityPolicy = [
   "default-src 'self'",
   "base-uri 'none'",
   "connect-src 'self'",
+  "script-src-elem 'self'",
   "font-src 'self' https://fonts.gstatic.com",
   "form-action 'self'",
   "frame-ancestors 'none'",
