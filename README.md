@@ -74,9 +74,9 @@ Cloudflare 按其[部署按钮规则](https://developers.cloudflare.com/workers/
 pnpm install --frozen-lockfile
 pnpm exec wrangler login
 pnpm exec wrangler d1 create arconline-ext
-pnpm exec wrangler r2 bucket create arcaea-assets
-pnpm exec wrangler queues create arcaea-jobs
-pnpm exec wrangler queues create arcaea-jobs-failed
+pnpm exec wrangler r2 bucket create arconline-ext
+pnpm exec wrangler queues create arconline-ext-jobs
+pnpm exec wrangler queues create arconline-ext-jobs-failed
 ```
 
 将新数据库的 ID 填入 `wrangler.jsonc` 的 `DB.database_id`。如修改资源名，同时更新相应绑定及队列消费者引用；同一账户部署多个实例时，各实例需使用不同的 Worker、数据库、桶和队列名称。
