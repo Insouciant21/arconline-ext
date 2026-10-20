@@ -39,6 +39,7 @@ export async function api(env: Env, request: Request, background?: Pick<Executio
   } catch (error) {
     const response = errorResponse(error);
     response.headers.set("cache-control", "no-store");
+    response.headers.set("x-content-type-options", "nosniff");
     if (error instanceof AppError && error.status === 405) response.headers.set("allow", error.message);
     return response;
   }
@@ -46,4 +47,6 @@ export async function api(env: Env, request: Request, background?: Pick<Executio
 function method(request: Request, allowed: string) {
   if (request.method !== allowed) throw new AppError(allowed, 405, "METHOD_NOT_ALLOWED");
 }
-function json(value: unknown, status = 200) { return Response.json(value, { status, headers: { "cache-control": "no-store" } }); }
+function json(value: unknown, status = 200) {
+  return Response.json(value, { status, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" } });
+}
