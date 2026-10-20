@@ -105,10 +105,10 @@ export class Store {
   }
 }
 function csv(value: string | number) { const text = String(value); return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; }
-export function buildB50HistoryCsv(snapshots: B50Snapshot[]) {
+function buildB50HistoryCsv(snapshots: B50Snapshot[]) {
   return ["snapshot_id,fetched_at,trigger,potential,weighted_potential,rank,song_id,difficulty,rating,score,clear_type",
     ...snapshots.flatMap(s => s.best50.map((score, i) => [s.id,s.fetchedAt,s.trigger,s.potential,s.weightedPotential,i+1,score.songId,score.difficulty,score.rating,score.score,score.clearType].map(csv).join(",")))].join("\n");
 }
-export function buildPttHistoryCsv(points: PotentialHistoryPoint[]) {
+function buildPttHistoryCsv(points: PotentialHistoryPoint[]) {
   return ["date,potential,snapshot_id,fetched_at", ...points.map(p => [p.date,p.potential,p.snapshotId,p.fetchedAt].map(csv).join(","))].join("\n");
 }

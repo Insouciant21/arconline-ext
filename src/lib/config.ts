@@ -1,7 +1,7 @@
 import { AppError } from "./errors";
 import type { Env } from "./environment";
 
-export const MOBILE_CHROME_UA = "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36";
+const MOBILE_CHROME_UA = "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36";
 export function getConfig(env: Env) {
   return {
     arcaeaApiBase: env.ARCAEA_API_BASE?.trim() || "https://webapi.lowiro.com",

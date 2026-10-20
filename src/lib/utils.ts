@@ -6,10 +6,6 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max);
-}
-
 export function formatNumber(value: number, maximumFractionDigits = 3) {
   return new Intl.NumberFormat("zh-CN", {
     maximumFractionDigits,
@@ -33,7 +29,7 @@ export function shinyPureCount(score: Pick<Best50Score, "score" | "perfectCount"
   return shiny >= 0 && shiny <= perfectCount ? shiny : null;
 }
 
-export function scoreModifier(score: number) {
+function scoreModifier(score: number) {
   if (score >= 10_000_000) return 2;
   if (score >= 9_800_000) return 1 + (score - 9_800_000) / 200_000;
   return (score - 9_500_000) / 300_000;
