@@ -5,6 +5,7 @@ export interface Env {
   ARCHIVE: R2Bucket;
   JOBS: Queue<JobMessage>;
   ASSETS?: Fetcher;
+  LOGIN_RATE_LIMITER?: RateLimit;
   ADMIN_TOKEN?: string;
   USERNAME?: string;
   PASSWD?: string;
