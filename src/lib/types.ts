@@ -54,8 +54,6 @@ export interface ChartImageCacheEntry {
   updatedAt: string;
 }
 
-export type ChartImageCache = Record<string, ChartImageCacheEntry>;
-
 export interface CharacterImageCacheEntry {
   characterId: number;
   icon?: string;
@@ -63,8 +61,6 @@ export interface CharacterImageCacheEntry {
   imageUrl?: string;
   updatedAt: string;
 }
-
-export type CharacterImageCache = Record<string, CharacterImageCacheEntry>;
 
 export interface B50Snapshot {
   id: string;
@@ -137,11 +133,4 @@ export interface LogEntry {
 
 export interface LogsPayload {
   entries: LogEntry[];
-}
-
-export interface SyncResult {
-  snapshot: B50Snapshot;
-  recorded: boolean;
-  duplicateOf?: string;
-  message: string;
 }

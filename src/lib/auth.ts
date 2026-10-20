@@ -3,7 +3,7 @@ import { AppError } from "./errors";
 
 const COOKIE = "arc_session";
 const SEVEN_DAYS = 7 * 86400;
-export async function digest(value: string) {
+async function digest(value: string) {
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
 }

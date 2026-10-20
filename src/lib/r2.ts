@@ -1,6 +1,5 @@
 import type { Env } from "./environment";
 import type { B50Snapshot } from "./types";
-import { AppError } from "./errors";
 
 export function publicAssetUrl(env: Env, key: string) {
   const encoded = key.split("/").map(encodeURIComponent).join("/");
@@ -18,9 +17,4 @@ export async function putSnapshot(env: Env, snapshot: B50Snapshot) {
     httpMetadata: { contentType: "application/json; charset=utf-8", cacheControl: "no-cache" },
     customMetadata: { kind: "b50-snapshot", snapshotId: snapshot.id, fetchedAt: snapshot.fetchedAt },
   });
-}
-export async function getAsset(env: Env, key: string) {
-  const object = await env.ARCHIVE.get(key);
-  if (!object) throw new AppError("资源不存在。", 404, "ASSET_NOT_FOUND");
-  return object;
 }

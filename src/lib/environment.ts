@@ -15,7 +15,6 @@ export interface Env {
   ARCAEA_WEB_BASE?: string;
   ARCAEA_ASSET_BASE?: string;
   ARCAEA_USER_AGENT?: string;
-  APP_ORIGIN?: string;
   R2_PUBLIC_URL?: string;
   SCHEDULE_TIMEZONE?: string;
   DAILY_SYNC_ENABLED?: string;

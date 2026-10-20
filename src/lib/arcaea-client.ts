@@ -15,15 +15,6 @@ interface ApiEnvelope {
 
 type ImageKind = "potential" | "chart" | "character";
 
-export interface RemoteSnapshotData {
-  user: StoredUser;
-  best50: Best50Score[];
-  potentialImage: {
-    body: ArrayBuffer;
-    contentType: string;
-  };
-}
-
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const ARCAEA_REQUEST_TIMEOUT_MS = 30_000;
 
@@ -137,14 +128,6 @@ export class ArcaeaClient {
   async fetchB50Snapshot() {
     const [user, best50] = await Promise.all([this.getUser(), this.getBest50()]);
     return { user, best50 };
-  }
-
-  async fetchSnapshot(): Promise<RemoteSnapshotData> {
-    const [base, potentialImage] = await Promise.all([
-      this.fetchB50Snapshot(),
-      this.getOnlineImage(),
-    ]);
-    return { ...base, potentialImage };
   }
 
   private async request<T extends ApiEnvelope>(path: string) {

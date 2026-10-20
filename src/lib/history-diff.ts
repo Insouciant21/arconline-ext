@@ -1,6 +1,6 @@
 import type { B50Snapshot, Best50Score } from "./types";
 
-export const comparedFields = ["score", "rating", "perfectCount", "nearCount", "missCount", "clearType", "modifier", "timePlayed"] as const;
+const comparedFields = ["score", "rating", "perfectCount", "nearCount", "missCount", "clearType", "modifier", "timePlayed"] as const;
 export type ComparedField = (typeof comparedFields)[number];
 
 export function compareSnapshots(before: B50Snapshot, after: B50Snapshot) {

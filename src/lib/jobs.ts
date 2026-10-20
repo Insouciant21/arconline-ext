@@ -10,7 +10,7 @@ export interface JobRow {
   created_at: string; updated_at: string; lease_token: string | null; lease_until: number | null;
   state: string; result: string | null; error: string | null;
 }
-export function jobView(row: JobRow): JobView {
+function jobView(row: JobRow): JobView {
   const state = JSON.parse(row.state) as SyncState;
   return { id: row.id, kind: row.kind, status: row.status, stage: row.stage,
     progress: { completed: state.media?.filter(item => item.done).length || 0, total: state.media?.length || 0 },
@@ -56,7 +56,7 @@ export async function retryJob(env: Env, id: string) {
   await dispatch(env).catch(error => console.error("[outbox] deferred", error));
   return { jobId: id, status: "queued" };
 }
-export async function dispatch(env: Env) {
+async function dispatch(env: Env) {
   const store = new Store(env);
   const { results } = await store.sql(`SELECT o.job_id,o.step FROM outbox o JOIN jobs j ON j.id=o.job_id AND j.step=o.step
     WHERE j.status='queued' AND (o.sent_at IS NULL OR o.sent_at<?) ORDER BY j.created_at LIMIT 50`, Date.now() - 300_000).all<{ job_id: string; step: number }>();
