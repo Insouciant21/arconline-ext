@@ -1688,6 +1688,17 @@ body::before {
 }
 
 /* ===== Responsive ===== */
+@media (min-width: 1081px) {
+  #b50 .score-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  #b50 .score-card { container-type: inline-size; }
+}
+
+@container (max-width: 190px) {
+  #b50 .score-result-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+  #b50 .score-grade { justify-self: start; }
+  #b50 .score-number { grid-column: 1 / -1; grid-row: 2; }
+}
+
 @media (max-width: 1080px) {
   .profile-section { grid-template-columns: 1fr; }
   .history-layout { grid-template-columns: 220px minmax(0,1fr); }
