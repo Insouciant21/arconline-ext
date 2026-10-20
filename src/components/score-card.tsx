@@ -8,6 +8,7 @@ import {
   formatNumber,
   formatRelativeDate,
   formatScore,
+  shinyPureCount,
 } from "@/lib/utils";
 
 export function ScoreCard({ score, rank }: { score: Best50Score; rank: number }) {
@@ -63,7 +64,7 @@ export function ScoreCard({ score, rank }: { score: Best50Score; rank: number })
       </div>
 
       <div className="score-counts" aria-label="判定统计">
-        <ScoreCount label="PURE" value={score.perfectCount} tone="pure" />
+        <ScoreCount label="PURE" value={score.perfectCount} tone="pure" bonus={shinyPureCount(score)} />
         <ScoreCount label="FAR" value={score.nearCount} tone="far" />
         <ScoreCount label="LOST" value={score.missCount} tone="lost" />
       </div>
@@ -89,11 +90,11 @@ function ClearTypeText({ code, label }: { code: string; label: string }) {
   );
 }
 
-function ScoreCount({ label, value, tone }: { label: string; value: number; tone: string }) {
+function ScoreCount({ label, value, tone, bonus }: { label: string; value: number; tone: string; bonus?: number | null }) {
   return (
     <div className={`score-count score-count-${tone}`}>
       <span>{label}</span>
-      <strong>{formatScore(value)}</strong>
+      <strong>{formatScore(value)}{bonus != null ? <small className="score-count-bonus" title="大 PURE">(+{formatScore(bonus)})</small> : null}</strong>
     </div>
   );
 }
