@@ -18,12 +18,11 @@ export function ScoreCard({ score, rank }: { score: Best50Score; rank: number })
   return (
     <article className="score-card" aria-label={`${rank} ${title}`}>
       <div className="score-card-main">
-        <div className="score-potential" aria-label={`谱面定数 ${chartConstant.toFixed(1)}`}>
-          <strong>{chartConstant.toFixed(1)}</strong>
-          <DifficultyDiamond difficulty={score.difficulty} alias={score.difficultyAlias} />
-        </div>
-
         <div className="score-art">
+          <div className="score-potential" aria-label={`谱面定数 ${chartConstant.toFixed(1)}`}>
+            <strong>{chartConstant.toFixed(1)}</strong>
+            <DifficultyDiamond difficulty={score.difficulty} alias={score.difficultyAlias} />
+          </div>
           <span className="score-rank">{String(rank).padStart(2, "0")}</span>
           {score.imageUrl ? (
             <img src={score.imageUrl} alt={`${title} 曲绘`} loading="lazy" decoding="async" />
