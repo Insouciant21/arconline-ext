@@ -13,7 +13,7 @@ const contentSecurityPolicy = [
   "img-src 'self' data:",
   "manifest-src 'self'",
   "object-src 'none'",
-  "script-src 'self' 'unsafe-inline'",
+  "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
 ].join('; ');
 
