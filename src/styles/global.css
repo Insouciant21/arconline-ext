@@ -1327,6 +1327,37 @@ body::before {
 .history-index-list {
   max-height: 560px;
   overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(99, 84, 184, .52) rgba(99, 84, 184, .08);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.history-index-list::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.history-index-list::-webkit-scrollbar-track {
+  border-left: 1px solid rgba(99, 84, 184, .08);
+  background: rgba(99, 84, 184, .04);
+}
+
+.history-index-list::-webkit-scrollbar-thumb {
+  min-height: 42px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(99, 84, 184, .72), rgba(153, 76, 151, .72)) padding-box;
+  background-clip: padding-box;
+}
+
+.history-index-list::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, var(--violet), var(--magenta)) padding-box;
+  background-clip: padding-box;
+}
+
+.history-index-list::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .history-index-item {
