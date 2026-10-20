@@ -12,6 +12,7 @@
 - Queues 分阶段处理同步、历史导入及媒体重试。关闭浏览器不会终止任务，页面每两秒更新进度。
 - Cron 在 UTC `15:59`（北京时间 `23:59`）提交每日任务，每五分钟恢复过期任务和补投遗漏消息。
 - 管理口令登录，随机 Cookie 会话有效期七天；会话摘要保存在 D1，退出立即撤销。
+- 登录接口同时使用 Workers Rate Limiting binding 与 D1 尝试计数限制暴力破解。
 
 B50 未变化时不新增快照、不上传媒体；官网历史仍会更新。PTT 图表合并官网历史和快照，按北京时间取每日最高值。历史页直接查询 D1，不在每次请求中扫描 R2。日志保留最近 500 条。
 
@@ -117,6 +118,8 @@ pnpm exec wrangler secret put ADMIN_TOKEN --config wrangler.production.jsonc
 `env.ARCHIVE`、`env.DB`、`env.JOBS` 是 Cloudflare 注入的资源绑定对象，不是 `.env` 字符串配置。线上代码直接使用 `ARCHIVE.get()/put()`、`DB.prepare()`、`JOBS.send()`，运行时不需要 Cloudflare API Token。
 
 `DAILY_SYNC_ENABLED` 控制每日同步；`MUTATIONS_ENABLED=false` 用于维护期间拒绝新任务并暂停处理。`R2_PUBLIC_URL` 是可选的公开图片地址前缀，不参与 R2 鉴权；不配置时，图片通过同域 `/api/media/*` 读取。若额外开启 R2 公共入口，该入口不受 Worker 登录控制。
+
+`LOGIN_RATE_LIMITER` 在每个 Cloudflare 数据中心按客户端 IP 允许 10 秒内 20 次登录请求，超过后返回 `429`。应用层仍按 IP 在 D1 记录失败次数，一分钟内超过 5 次同样返回 `429`。两层限制分别应对突发流量和持续暴力猜测。
 
 媒体请求先校验登录，再读取 Worker Cache API，未命中时通过 `ARCHIVE` binding 流式读取 R2。边缘缓存和浏览器私有缓存均为一小时，支持 ETag / `If-None-Match` 返回 `304`、HEAD 请求；浏览器响应带 `Vary: Cookie`。`X-Media-Cache: HIT/MISS` 可用于诊断。缓存异常时回退 R2，错误响应不缓存。边缘缓存仅在正式自定义域名上验证，`workers.dev` 不提供相同缓存行为；缓存可能在 TTL 前被淘汰。同 key 对象更新最多延迟一小时可见。页面和业务响应不进入公共缓存。
 

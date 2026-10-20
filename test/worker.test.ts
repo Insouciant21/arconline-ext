@@ -81,6 +81,18 @@ describe("authentication and API",()=>{
     for(const value of ['//evil.example','/\\evil.example','https://evil.example','/\n/evil.example'])expect(safeCallbackUrl(value)).toBe('/');
     expect(safeCallbackUrl('/history?x=1')).toBe('/history?x=1');
   });
+  it("uses the Cloudflare rate limiter before accepting login attempts", async () => {
+    const limit = vi.fn()
+      .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({ success: false });
+    const limitedEnv = { ...env, LOGIN_RATE_LIMITER: { limit } };
+    expect((await api(limitedEnv, request('/api/auth/login', 'POST', '', { token: 'test-token' }))).status).toBe(200);
+    const response = await api(limitedEnv, request('/api/auth/login', 'POST', '', { token: 'test-token' }));
+    expect(response.status).toBe(429);
+    expect(await response.json()).toMatchObject({ code: 'LOGIN_RATE_LIMITED' });
+    expect(limit).toHaveBeenCalledTimes(2);
+    expect(limit).toHaveBeenNthCalledWith(1, { key: 'local' });
+  });
   it("serves authenticated media privately",async()=>{
     const cookie=await login();await env.ARCHIVE.put('charts/test.jpg','image',{httpMetadata:{contentType:'image/jpeg'}});
     const response=await api(env,request('/api/media/charts/test.jpg','GET',cookie));

@@ -30,8 +30,12 @@ function sessionCookie(value: string, request: Request, maxAge = SEVEN_DAYS) {
 }
 export async function login(env: Env, request: Request) {
   requireSameOrigin(request);
+  const clientIp = request.headers.get("cf-connecting-ip") || "local";
+  if (env.LOGIN_RATE_LIMITER && !(await env.LOGIN_RATE_LIMITER.limit({ key: clientIp })).success) {
+    throw new AppError("登录请求过于频繁，请稍后再试。", 429, "LOGIN_RATE_LIMITED");
+  }
   const now = Date.now();
-  const key = await digest(request.headers.get("cf-connecting-ip") || "local");
+  const key = await digest(clientIp);
   const attempts = await env.DB.prepare(`INSERT INTO login_attempts(key,count,expires_at) VALUES(?,1,?)
     ON CONFLICT(key) DO UPDATE SET count=CASE WHEN expires_at<=? THEN 1 ELSE count+1 END,
     expires_at=CASE WHEN expires_at<=? THEN excluded.expires_at ELSE expires_at END RETURNING count`)
