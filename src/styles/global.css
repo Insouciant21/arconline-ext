@@ -1875,7 +1875,15 @@ body::before {
   .score-title-row { display: contents; }
   .score-title-copy > .score-label,
   .score-number > .score-label { display: none; }
-  .score-title-copy h3 { margin: 0; font-size: 14px; line-height: 1.3; }
+  .score-card-body .score-title-copy h3 {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+    line-height: 1.3;
+  }
   .score-rating { align-self: center; font-size: 12px; }
   .score-rating small { font-size: 7px; }
 
