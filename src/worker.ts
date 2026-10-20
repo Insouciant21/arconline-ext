@@ -7,14 +7,14 @@ const contentSecurityPolicy = [
   "default-src 'self'",
   "base-uri 'none'",
   "connect-src 'self'",
-  "font-src 'self'",
+  "font-src 'self' https://fonts.gstatic.com",
   "form-action 'self'",
   "frame-ancestors 'none'",
   "img-src 'self' data:",
   "manifest-src 'self'",
   "object-src 'none'",
   "script-src 'self' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
 ].join('; ');
 
 const securityHeaders = {
