@@ -5,18 +5,20 @@ import { ChevronLeft, ChevronRight, Loader2, Search } from "lucide-react";
 import { AppNavigation } from "@/components/app-navigation";
 import { ScoreCard } from "@/components/score-card";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { parseSongScoreQuery, songScoreSearchParams, songScoreSorts, SONG_SCORE_PAGE_SIZE, SONG_SEARCH_MAX_LENGTH } from "@/lib/song-query";
 import type { SongScoreQuery, SongScoresPayload } from "@/lib/types";
 import { difficultyCode } from "@/lib/utils";
 
 const difficulties = [
-  { value: 0, label: "PST · Past" },
-  { value: 1, label: "PRS · Present" },
-  { value: 2, label: "FTR · Future" },
-  { value: 4, label: "ETR · Eternal" },
-  { value: 3, label: "BYD / INS" },
+  { value: "0", label: "PST · Past" },
+  { value: "1", label: "PRS · Present" },
+  { value: "2", label: "FTR · Future" },
+  { value: "4", label: "ETR · Eternal" },
+  { value: "3", label: "BYD / INS" },
 ];
 const sortLabels = { title: "曲名", date: "成绩时间", score: "分数", score_below_max: "距理论值" };
+const sorts = songScoreSorts.map(value => ({ value, label: sortLabels[value] }));
 
 export function SongSearchShell() {
   const [term, setTerm] = React.useState("");
@@ -110,18 +112,14 @@ export function SongSearchShell() {
               <span>曲名或歌曲 ID</span>
               <input name="term" type="search" placeholder="例如 Aegleseeker" value={term} onChange={event => setTerm(event.target.value)} maxLength={SONG_SEARCH_MAX_LENGTH} required autoComplete="off" />
             </label>
-            <label className="song-search-field">
-              <span>谱面难度</span>
-              <select name="difficulty" value={difficulty} onChange={event => setDifficulty(Number(event.target.value))}>
-                {difficulties.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
-              </select>
-            </label>
-            <label className="song-search-field">
-              <span>排序方式</span>
-              <select name="sort" value={sort} onChange={event => setSort(event.target.value as SongScoreQuery["sort"])}>
-                {songScoreSorts.map(value => <option key={value} value={value}>{sortLabels[value]}</option>)}
-              </select>
-            </label>
+            <div className="song-search-field">
+              <label htmlFor="song-difficulty">谱面难度</label>
+              <Select id="song-difficulty" name="difficulty" value={String(difficulty)} onValueChange={value => setDifficulty(Number(value))} options={difficulties} />
+            </div>
+            <div className="song-search-field">
+              <label htmlFor="song-sort">排序方式</label>
+              <Select id="song-sort" name="sort" value={sort} onValueChange={value => setSort(value as SongScoreQuery["sort"])} options={sorts} />
+            </div>
             <Button type="submit" className="song-search-submit" disabled={loading}>
               {loading ? <Loader2 size={15} className="spin" /> : <Search size={15} />}
               {loading ? "查询中…" : "查询成绩"}

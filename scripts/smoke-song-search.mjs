@@ -49,6 +49,35 @@ try {
     await page.getByLabel('曲名或歌曲 ID').fill(term);
     await page.getByRole('button', { name: '查询成绩', exact: true }).click();
   }
+  const difficultySelect = page.getByRole('combobox', { name: '谱面难度' });
+  const sortSelect = page.getByRole('combobox', { name: '排序方式' });
+  async function selectOption(control, option) {
+    await control.click();
+    await page.getByRole('option', { name: option, exact: true }).click();
+    await expect(control).toHaveText(option);
+    await expect(page.getByRole('listbox')).toHaveCount(0);
+  }
+  await expect(difficultySelect).toHaveText('FTR · Future');
+  await difficultySelect.focus();
+  await difficultySelect.press('Enter');
+  await expect(page.getByRole('option', { name: 'FTR · Future', exact: true })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('option', { name: 'ETR · Eternal', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(difficultySelect).toHaveText('ETR · Eternal');
+  await expect(difficultySelect).toBeFocused();
+  await difficultySelect.press('Enter');
+  await page.keyboard.press('Home');
+  await expect(page.getByRole('option', { name: 'PST · Past', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(difficultySelect).toHaveText('ETR · Eternal');
+  await expect(difficultySelect).toBeFocused();
+  await difficultySelect.click();
+  const heading = await page.locator('#song-search-title').boundingBox();
+  await page.mouse.click(heading.x + heading.width / 2, heading.y + heading.height / 2);
+  await expect(page.getByRole('listbox')).toHaveCount(0);
+  await selectOption(difficultySelect, 'FTR · Future');
+  expect(requests).toHaveLength(0);
   await search('Aegleseeker');
   await expect(page.getByRole('button', { name: '查询中…' })).toBeDisabled();
   await expect(page.locator('.score-card')).toHaveCount(1);
@@ -58,8 +87,8 @@ try {
   await expect(page.locator('.score-rating, .score-rank, .score-potential strong')).toHaveCount(0);
   await page.screenshot({ path: `${directory}/song-search-desktop.png`, fullPage: true });
 
-  await page.getByLabel('谱面难度').selectOption('3');
-  await page.getByLabel('排序方式').selectOption('score_below_max');
+  await selectOption(difficultySelect, 'BYD / INS');
+  await selectOption(sortSelect, '距理论值');
   await search('Dread & Area');
   await expect(page.locator('.difficulty-diamond')).toHaveText('INS');
   expect(requests.at(-1)).toEqual({ term: 'Dread & Area', difficulty: '3', page: '1', sort: 'score_below_max' });
@@ -78,11 +107,23 @@ try {
     }
     const links = await page.locator('.topbar-actions > *').all();
     for (const link of links) await expect(link).toBeInViewport({ ratio: 1 });
+    const triggerRect = await difficultySelect.boundingBox();
+    await difficultySelect.click();
+    const menu = page.getByRole('listbox');
+    await expect(menu).toBeInViewport({ ratio: 1 });
+    const menuRect = await menu.boundingBox();
+    expect(Math.abs(menuRect.width - triggerRect.width)).toBeLessThanOrEqual(1);
+    await expect(page.getByRole('option', { name: 'BYD / INS', exact: true })).toHaveAttribute('data-state', 'checked');
+    if (width === 1440 || width === 390) await page.screenshot({ path: `${directory}/song-search-dropdown-${width}.png` });
+    await page.keyboard.press('Escape');
+    await sortSelect.click();
+    await expect(page.getByRole('listbox')).toBeInViewport({ ratio: 1 });
+    await page.keyboard.press('Escape');
     if (width === 390) await page.screenshot({ path: `${directory}/song-search-mobile.png`, fullPage: true });
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.getByLabel('谱面难度').selectOption('2');
-  await page.getByLabel('排序方式').selectOption('title');
+  await selectOption(difficultySelect, 'FTR · Future');
+  await selectOption(sortSelect, '曲名');
   await search('Arcaea');
   await expect(page.locator('.score-card')).toHaveCount(10);
   await expect(page.getByRole('button', { name: '上一页' })).toBeDisabled();
@@ -92,6 +133,8 @@ try {
   await expect(page.getByRole('button', { name: '下一页' })).toBeDisabled();
   await page.reload();
   await expect(page.getByLabel('曲名或歌曲 ID')).toHaveValue('Arcaea');
+  await expect(difficultySelect).toHaveText('FTR · Future');
+  await expect(sortSelect).toHaveText('曲名');
   await expect(page.locator('.song-search-pagination')).toContainText('第 2 / 2 页');
   await page.goBack();
   await expect(page.locator('.score-card')).toHaveCount(10);
@@ -105,6 +148,18 @@ try {
   await page.getByRole('button', { name: '重试查询' }).click();
   await expect(page.locator('.score-card')).toHaveCount(1);
   await expect(page.getByRole('alert')).toHaveCount(0);
+  const touchContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, storageState: await context.storageState() });
+  const touchPage = await touchContext.newPage();
+  touchPage.on('pageerror', error => errors.push(error.message));
+  await touchPage.goto(origin + '/scores');
+  await touchPage.locator('astro-island:not([ssr])').waitFor();
+  const touchDifficulty = touchPage.getByRole('combobox', { name: '谱面难度' });
+  await touchDifficulty.tap();
+  await expect(touchPage.getByRole('listbox')).toBeInViewport({ ratio: 1 });
+  await touchPage.getByRole('option', { name: 'ETR · Eternal', exact: true }).tap();
+  await expect(touchDifficulty).toHaveText('ETR · Eternal');
+  await expect(touchPage.getByRole('listbox')).toHaveCount(0);
+  await touchContext.close();
   expect(errors).toEqual([]);
-  console.log(JSON.stringify({ origin, authenticated: true, search: true, filters: true, pagination: true, history: true, empty: true, retry: true, responsive: [320, 390, 768, 1440], pageErrors: errors.length }));
+  console.log(JSON.stringify({ origin, authenticated: true, search: true, filters: true, dropdown: { keyboard: true, escape: true, outsideClick: true, touch: true }, pagination: true, history: true, empty: true, retry: true, responsive: [320, 390, 768, 1440], pageErrors: errors.length }));
 } finally { await browser.close(); }
