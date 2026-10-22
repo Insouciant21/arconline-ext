@@ -10,6 +10,7 @@ interface ArcaeaSession {
 
 interface ApiEnvelope {
   success?: boolean;
+  error_code?: number;
   isLoggedIn?: boolean;
   value?: unknown;
   message?: string;
@@ -42,7 +43,8 @@ export class ArcaeaClient {
 
     const payload = await parseJson<ApiEnvelope>(response);
     if (!response.ok || payload.isLoggedIn !== true) {
-      throw new AppError("Arcaea 登录失败，请检查账号配置或账号状态。", 502, "ARCAEA_LOGIN_FAILED");
+      const code = Number.isSafeInteger(payload.error_code) ? `，错误码 ${payload.error_code}` : "";
+      throw new AppError(`Arcaea 登录失败（HTTP ${response.status}${code}），请检查账号配置或账号状态。`, 502, "ARCAEA_LOGIN_FAILED");
     }
 
     const cookies = getSetCookieHeader(response.headers);
