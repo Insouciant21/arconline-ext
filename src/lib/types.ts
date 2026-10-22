@@ -5,12 +5,11 @@ export interface LocalizedTitle {
   [key: string]: string | undefined;
 }
 
-export interface Best50Score {
+export interface Score {
   difficultyAlias?: number;
   songId: string;
   difficulty: number;
   modifier: number;
-  rating: number;
   score: number;
   perfectCount: number;
   nearCount: number;
@@ -22,6 +21,28 @@ export interface Best50Score {
   bg?: string;
   imageKey?: string;
   imageUrl?: string;
+}
+
+export interface Best50Score extends Score {
+  rating: number;
+}
+
+export interface SongScore extends Score {
+  shinyPerfectCount: number;
+  bestClearType: number;
+  yearlyPlayCount: number;
+}
+
+export interface SongScoreQuery {
+  term: string;
+  difficulty: number;
+  page: number;
+  sort: "date" | "score" | "score_below_max" | "title";
+}
+
+export interface SongScoresPayload {
+  scores: SongScore[];
+  count: number;
 }
 
 export interface StoredUser {

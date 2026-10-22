@@ -1,9 +1,10 @@
-import type { Best50Score } from "@/lib/types";
+import type { Best50Score, SongScore } from "@/lib/types";
 import {
   clearTypeCode,
   clearTypeLabel,
   chartConstantFromScore,
   difficultyCode,
+  difficultyLabel,
   difficultyTone,
   formatNumber,
   formatRelativeDate,
@@ -11,20 +12,20 @@ import {
   shinyPureCount,
 } from "@/lib/utils";
 
-export function ScoreCard({ score, rank }: { score: Best50Score; rank: number }) {
+export function ScoreCard({ score, rank }: { score: Best50Score | SongScore; rank?: number }) {
   const title = score.title.zh || score.title.en || score.title.ja || score.songId;
   const playedAt = score.timePlayed > 0 ? formatRelativeDate(score.timePlayed) : "—";
-  const chartConstant = chartConstantFromScore(score);
+  const chartConstant = "rating" in score ? chartConstantFromScore(score) : null;
 
   return (
-    <article className="score-card" aria-label={`${rank} ${title}`}>
+    <article className="score-card" aria-label={`${rank ? `${rank} ` : ""}${title} ${difficultyCode(score.difficulty, score.difficultyAlias)}`}>
       <div className="score-card-main">
         <div className="score-art">
-          <div className="score-potential" aria-label={`谱面定数 ${chartConstant.toFixed(1)}`}>
-            <strong>{chartConstant.toFixed(1)}</strong>
+          <div className="score-potential" aria-label={chartConstant !== null ? `谱面定数 ${chartConstant.toFixed(1)}` : difficultyLabel(score.difficulty, score.difficultyAlias)}>
+            {chartConstant !== null ? <strong>{chartConstant.toFixed(1)}</strong> : null}
             <DifficultyDiamond difficulty={score.difficulty} alias={score.difficultyAlias} />
           </div>
-          <span className="score-rank">{String(rank).padStart(2, "0")}</span>
+          {rank ? <span className="score-rank">{String(rank).padStart(2, "0")}</span> : null}
           {score.imageUrl ? (
             <img src={score.imageUrl} alt={`${title} 曲绘`} loading="lazy" decoding="async" />
           ) : (
@@ -39,9 +40,9 @@ export function ScoreCard({ score, rank }: { score: Best50Score; rank: number })
               <span className="score-label">TRACK</span>
               <h3 title={title}>{title}</h3>
             </div>
-            <strong className="score-rating">
+            {"rating" in score ? <strong className="score-rating">
               {formatNumber(score.rating, 3)} <small>PTT</small>
-            </strong>
+            </strong> : null}
           </div>
           <p className="score-artist" title={score.artist}>{score.artist || "Unknown artist"}</p>
 
@@ -64,10 +65,14 @@ export function ScoreCard({ score, rank }: { score: Best50Score; rank: number })
       </div>
 
       <div className="score-counts" aria-label="判定统计">
-        <ScoreCount label="PURE" value={score.perfectCount} tone="pure" bonus={shinyPureCount(score)} />
+        <ScoreCount label="PURE" value={score.perfectCount} tone="pure" bonus={"shinyPerfectCount" in score ? score.shinyPerfectCount : shinyPureCount(score)} />
         <ScoreCount label="FAR" value={score.nearCount} tone="far" />
         <ScoreCount label="LOST" value={score.missCount} tone="lost" />
       </div>
+      {"bestClearType" in score ? <div className="song-score-meta">
+        <span>最佳通关 <strong title={clearTypeLabel(score.bestClearType)}>{clearTypeCode(score.bestClearType)}</strong></span>
+        <span>年内游玩 <strong>{formatScore(score.yearlyPlayCount)}</strong> 次</span>
+      </div> : null}
     </article>
   );
 }

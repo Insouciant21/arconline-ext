@@ -36,6 +36,23 @@ function mockLowiro(snapshot = fixture()) {
   vi.spyOn(ArcaeaClient,"login").mockResolvedValue(client as unknown as ArcaeaClient);
   return client;
 }
+function songScoreFixture() {
+  return { user_id: 123, song_id: "aegleseeker", difficulty: 2, score: 9960014,
+    shiny_perfect_count: 1469, perfect_count: 1559, near_count: 5, miss_count: 4,
+    clear_type: 1, best_clear_type: 5, modifier: 0, time_played: 1777211741898,
+    yearly_play_count: 8, title: { en: "Aegleseeker" }, artist: "Silentroom vs Frums", bg: "b".repeat(32) };
+}
+function mockSongApi(payload: unknown) {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const upstream = new Request(input, init);
+    const path = new URL(upstream.url).pathname;
+    if (path === "/auth/login") return Response.json({ isLoggedIn: true }, { headers: { "set-cookie": "lowiro=private-session; HttpOnly; Secure" } });
+    expect(upstream.headers.get("cookie")).toBe("lowiro=private-session");
+    if (path === "/webapi/user/me") return Response.json({ value: { rating: 12500, name: "Test" } });
+    if (path === "/webapi/score/song/me/all") return Response.json(payload);
+    throw new Error("Unexpected upstream request");
+  });
+}
 beforeEach(async()=>{
   const b=bindings as unknown as Env & {TEST_MIGRATIONS:Parameters<typeof applyD1Migrations>[1]};
   await applyD1Migrations(b.DB,b.TEST_MIGRATIONS);
@@ -176,6 +193,97 @@ describe("authentication and API",()=>{
     expect(new TextDecoder().decode(await response.arrayBuffer())).toBe('image');
   });
 });
+describe("single-song queries", () => {
+  it("requires a panel session and validates queries before contacting Lowiro", async () => {
+    const upstreamLogin = vi.spyOn(ArcaeaClient, "login").mockRejectedValue(new Error("Unexpected login"));
+    expect((await api(env, request("/api/scores?term=Aegleseeker"))).status).toBe(401);
+    const cookie = await login();
+    expect((await api(env, request("/api/scores?term=Aegleseeker", "POST", cookie))).status).toBe(405);
+    for (const query of ["", "term=%20", `term=${"a".repeat(101)}`, "term=abc%00def", "term=abc&difficulty=5", "term=abc&page=0", "term=abc&page=1.5", "term=abc&page=10000", "term=abc&sort=unknown"]) {
+      const response = await api(env, request(`/api/scores?${query}`, "GET", cookie));
+      expect(response.status).toBe(400);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    }
+    expect(upstreamLogin).not.toHaveBeenCalled();
+  });
+
+  it("encodes search terms, preserves official judgements and pagination, and strips private fields", async () => {
+    const bg = "b".repeat(32);
+    await env.ARCHIVE.put(`charts/${bg}.jpg`, "cached-art", { httpMetadata: { contentType: "image/jpeg" } });
+    const upstream = mockSongApi({ success: true, value: { scores: [{ ...songScoreFixture(), difficulty: 3, difficulty_alias: 1 }], count: 11 } });
+    const cookie = await login();
+    const response = await api(env, request("/api/scores?term=%20Dread%20%26%20Area%20&difficulty=3&page=2&sort=score_below_max", "GET", cookie));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const payload = await response.json() as { scores: Array<Record<string, unknown>>; count: number };
+    expect(payload.count).toBe(11);
+    expect(payload.scores[0]).toMatchObject({ songId: "aegleseeker", difficulty: 3, difficultyAlias: 1,
+      score: 9960014, perfectCount: 1559, shinyPerfectCount: 1469, nearCount: 5, missCount: 4,
+      clearType: 1, bestClearType: 5, yearlyPlayCount: 8, imageUrl: `/api/media/charts/${bg}.jpg` });
+    expect(payload.scores[0]).not.toHaveProperty("rating");
+    expect(payload.scores[0]).not.toHaveProperty("user_id");
+    expect(JSON.stringify(payload)).not.toContain("private-session");
+    expect(upstream).toHaveBeenCalledTimes(3);
+    const scoreRequest = upstream.mock.calls.find(([input]) => String(input).includes("/score/song/me/all"))!;
+    const params = new URL(String(scoreRequest[0])).searchParams;
+    expect(Object.fromEntries(params)).toEqual({ term: "Dread & Area", difficulty: "3", page: "2", sort: "score_below_max" });
+    expect(await new Store(env).latest()).toBeNull();
+  });
+
+  it("returns an empty result for an unplayed or unmatched chart", async () => {
+    const upstream = mockSongApi({ success: true, value: { scores: [], count: 0 } });
+    const cookie = await login();
+    const response = await api(env, request("/api/scores?term=not-played", "GET", cookie));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ scores: [], count: 0 });
+    const scoreRequest = upstream.mock.calls.find(([input]) => String(input).includes("/score/song/me/all"))!;
+    expect(Object.fromEntries(new URL(String(scoreRequest[0])).searchParams)).toEqual({ term: "not-played", difficulty: "2", page: "1", sort: "title" });
+  });
+
+  it.each([
+    { success: false, error_code: 999 },
+    { success: true, value: {} },
+    { success: true, value: { scores: [], count: "1" } },
+    { success: true, value: { scores: [songScoreFixture()], count: 0 } },
+    { success: true, value: { scores: [{ ...songScoreFixture(), shiny_perfect_count: 2000 }], count: 1 } },
+  ])("reports upstream failures and malformed scores instead of hiding them as empty results %#", async payload => {
+    mockSongApi(payload);
+    const cookie = await login();
+    const response = await api(env, request("/api/scores?term=Aegleseeker", "GET", cookie));
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ code: expect.stringMatching(/^ARCAEA_SONG_/) });
+  });
+
+  it("caches new artwork in R2 and reuses it on subsequent searches", async () => {
+    const raw = songScoreFixture();
+    const getChartImage = vi.fn(async () => ({ body: new Uint8Array([1, 2, 3]).buffer, contentType: "image/jpeg" }));
+    const client = { getSongScores: vi.fn(async () => ({ scores: [{ songId: raw.song_id, bg: raw.bg }], count: 1 })), getChartImage };
+    vi.spyOn(ArcaeaClient, "login").mockResolvedValue(client as unknown as ArcaeaClient);
+    const cookie = await login();
+    for (let i = 0; i < 2; i++) {
+      const response = await api(env, request("/api/scores?term=Aegleseeker", "GET", cookie));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ scores: [{ imageUrl: `/api/media/charts/${raw.bg}.jpg` }] });
+    }
+    expect(getChartImage).toHaveBeenCalledExactlyOnceWith(raw.bg);
+    expect(await env.ARCHIVE.head(`charts/${raw.bg}.jpg`)).not.toBeNull();
+  });
+
+  it("keeps scores available when an artwork fetch fails", async () => {
+    const raw = songScoreFixture();
+    mockSongApi({ success: true, value: { scores: [raw], count: 1 } });
+    vi.spyOn(ArcaeaClient.prototype, "getChartImage").mockRejectedValue(new Error("Temporary artwork failure"));
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cookie = await login();
+    const response = await api(env, request("/api/scores?term=Aegleseeker", "GET", cookie));
+    expect(response.status).toBe(200);
+    const payload = await response.json() as { scores: Array<Record<string, unknown>> };
+    expect(payload.scores[0].score).toBe(raw.score);
+    expect(payload.scores[0]).not.toHaveProperty("imageUrl");
+    expect(warning).toHaveBeenCalledOnce();
+  });
+});
+
 describe("D1 archives",()=>{
   it("keeps daily maximum and latest chronologically, writes stable snapshots",async()=>{
     const store=new Store(env),first=fixture();await store.writeSnapshot(first);
