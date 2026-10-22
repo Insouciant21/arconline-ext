@@ -79,6 +79,13 @@ it("uses Workers-compatible fetch options for Lowiro login and images", async ()
   expect(fetch).toHaveBeenCalledTimes(3);
 });
 
+it("reports the upstream login status without exposing credentials or its response body", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ success: false, error_code: 104, detail: "private upstream body" }, { status: 400 }));
+  await expect(ArcaeaClient.login(env)).rejects.toMatchObject({
+    code: "ARCAEA_LOGIN_FAILED", message: "Arcaea 登录失败（HTTP 400，错误码 104），请检查账号配置或账号状态。",
+  });
+});
+
 describe("security headers",()=>{
   it("hardens browser and API responses without breaking redirects", async () => {
     const page = await api(env, request("/api/auth/session"));
