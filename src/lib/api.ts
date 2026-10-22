@@ -5,6 +5,7 @@ import { getDashboardPayload } from "./dashboard";
 import { enqueue, getJob, retryJob } from "./jobs";
 import { serveMedia } from "./media";
 import { Store } from "./store";
+import { getSongScores } from "./song-scores";
 
 export async function api(env: Env, request: Request, background?: Pick<ExecutionContext, "waitUntil">): Promise<Response> {
   try {
@@ -18,6 +19,7 @@ export async function api(env: Env, request: Request, background?: Pick<Executio
     }
     if (path === "/api/auth/session") { method(request, "GET"); return json({ authenticated: true }); }
     if (path === "/api/dashboard") { method(request, "GET"); return json(await getDashboardPayload(env)); }
+    if (path === "/api/scores") { method(request, "GET"); return json(await getSongScores(env, new URL(request.url).searchParams)); }
     if (path === "/api/health") { method(request, "GET"); await env.DB.prepare("SELECT 1").first(); return json({ ok: true, r2Configured: Boolean(env.ARCHIVE), runtime: "cloudflare", timestamp: new Date().toISOString() }); }
     if (path === "/api/sync" || path === "/api/cron/daily") { method(request, "POST"); return json(await enqueue(env, "sync", path.endsWith("daily") ? "cron" : "manual"), 202); }
     if (path === "/api/history/import") { method(request, "POST"); return json(await enqueue(env, "import"), 202); }

@@ -1,13 +1,15 @@
 import { AppError } from "./errors";
 import { getConfig, getArcaeaCredentials } from "./config";
 import type { Env } from "./environment";
-import type { Best50Score, LocalizedTitle, StoredUser } from "./types";
+import type { Best50Score, LocalizedTitle, Score, SongScore, SongScoreQuery, SongScoresPayload, StoredUser } from "./types";
+import { songScoreSearchParams, SONG_SCORE_PAGE_SIZE } from "./song-query";
 
 interface ArcaeaSession {
   cookies: string;
 }
 
 interface ApiEnvelope {
+  success?: boolean;
   isLoggedIn?: boolean;
   value?: unknown;
   message?: string;
@@ -83,6 +85,19 @@ export class ArcaeaClient {
       throw new AppError("Arcaea 返回的 B50 为空，请稍后重试。", 502, "ARCAEA_B50_EMPTY");
     }
     return scores.map(normalizeScore).sort((a, b) => b.rating - a.rating).slice(0, 50);
+  }
+
+  async getSongScores(query: SongScoreQuery): Promise<SongScoresPayload> {
+    const payload = await this.request<ApiEnvelope>(`/webapi/score/song/me/all?${songScoreSearchParams(query)}`);
+    const raw = asRecord(payload.value);
+    if (payload.success !== true) {
+      throw new AppError("单曲查询失败，请确认 Arcaea Online 订阅有效后重试。", 502, "ARCAEA_SONG_QUERY_FAILED");
+    }
+    if (!Array.isArray(raw.scores) || raw.scores.length > SONG_SCORE_PAGE_SIZE ||
+        typeof raw.count !== "number" || !Number.isSafeInteger(raw.count) || raw.count < raw.scores.length) {
+      throw new AppError("官网返回的单曲成绩格式异常，请稍后重试。", 502, "ARCAEA_SONG_SCORES_INVALID");
+    }
+    return { scores: raw.scores.map(normalizeSongScore), count: raw.count };
   }
 
   async getPotentialHistory() {
@@ -223,12 +238,32 @@ export class ArcaeaClient {
 
 function normalizeScore(rawValue: unknown): Best50Score {
   const raw = asRecord(rawValue);
+  return { ...normalizeScoreFields(raw), rating: asNumber(raw.rating) };
+}
+
+function normalizeSongScore(rawValue: unknown): SongScore {
+  const raw = asRecord(rawValue);
+  const integers = ["difficulty", "score", "perfect_count", "shiny_perfect_count", "near_count", "miss_count", "clear_type", "best_clear_type", "time_played", "yearly_play_count"];
+  if (typeof raw.song_id !== "string" || !raw.song_id ||
+      integers.some(key => typeof raw[key] !== "number" || !Number.isSafeInteger(raw[key]) || (raw[key] as number) < 0) ||
+      (raw.difficulty as number) > 4 || (raw.clear_type as number) > 5 || (raw.best_clear_type as number) > 5 ||
+      (raw.shiny_perfect_count as number) > (raw.perfect_count as number)) {
+    throw new AppError("官网返回的单曲成绩数据无效，请稍后重试。", 502, "ARCAEA_SONG_SCORES_INVALID");
+  }
+  return {
+    ...normalizeScoreFields(raw),
+    shinyPerfectCount: raw.shiny_perfect_count as number,
+    bestClearType: raw.best_clear_type as number,
+    yearlyPlayCount: raw.yearly_play_count as number,
+  };
+}
+
+function normalizeScoreFields(raw: Record<string, unknown>): Score {
   return {
     songId: asString(raw.song_id),
     difficulty: asNumber(raw.difficulty),
     ...(asOptionalInteger(raw.difficulty_alias) !== undefined ? { difficultyAlias: asOptionalInteger(raw.difficulty_alias) } : {}),
     modifier: asNumber(raw.modifier),
-    rating: asNumber(raw.rating),
     score: asNumber(raw.score),
     perfectCount: asNumber(raw.perfect_count),
     nearCount: asNumber(raw.near_count),

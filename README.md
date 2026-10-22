@@ -2,7 +2,7 @@
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Insouciant21/arconline-ext)
 
-单账号 Arcaea B50 与潜力值归档面板，使用 Astro、React 和 Cloudflare Workers。
+单账号 Arcaea B50、单曲成绩查询与潜力值归档面板，使用 Astro、React 和 Cloudflare Workers。
 
 ## 架构
 
@@ -15,6 +15,8 @@
 - 登录接口同时使用 Workers Rate Limiting binding 与 D1 尝试计数限制暴力破解。
 
 B50 未变化时不新增快照、不上传媒体；官网历史仍会更新。PTT 图表合并官网历史和快照，按北京时间取每日最高值。历史页直接查询 D1，不在每次请求中扫描 R2。日志保留最近 500 条。
+
+单曲查询页 `/scores` 按曲名关键词或歌曲 ID、难度查询当前账号的官网最佳成绩，支持排序和每页十条的分页。需要有效的 Arcaea Online 订阅；展示分数、PURE（+大 PURE）、FAR、LOST、成绩时间、最佳通关状态及年内游玩次数。查询结果不写入 B50 历史，曲绘复用私有 R2 缓存；官网账号和会话只用于服务端请求。
 
 后台使用 D1 事务保存任务及待投递记录；队列每次处理一个步骤，媒体每批最多八项、并行两项。步骤完成后记录检查点，失败最多自动重试三次，之后可以手动重试。确定性的 R2 对象键避免中断后重复上传。D1 租约持续二十分钟，长于队列调用上限，恢复任务由五分钟调度器负责。
 
@@ -48,6 +50,8 @@ pnpm preview
 pnpm exec playwright install chromium
 pnpm test:browser
 ```
+
+`pnpm test:browser:scores` 单独检查单曲查询交互，使用模拟官网响应，不需要本地快照或官网账号。
 
 默认访问 `http://127.0.0.1:4321`、口令 `local-test-token`。可通过 `SMOKE_ORIGIN`、`SMOKE_TOKEN` 或 `SMOKE_ENV_FILE` 指定目标与凭据。截图写入已忽略的 `test-results/browser/`。`node scripts/smoke-api.mjs` 使用相同的目标与凭据配置检查 API。
 
@@ -141,6 +145,7 @@ Cloudflare 自动上线使用 Workers Builds：在 Worker → Settings → Build
 | POST | `/api/auth/logout` | 撤销会话 |
 | GET | `/api/auth/session` | 查询登录状态 |
 | GET | `/api/dashboard` | 当前 B50、每日 PTT、活动任务 |
+| GET | `/api/scores?term=Aegleseeker&difficulty=2&page=1&sort=title` | 查询官网个人最佳成绩，返回 `{ scores, count }`；难度 0–4，排序支持 `title`、`date`、`score`、`score_below_max` |
 | POST | `/api/sync` | 提交同步，返回 `202 { jobId, status }` |
 | POST | `/api/history/import` | 提交官网 PTT 历史导入 |
 | POST | `/api/media/retry` | 重试最新失败快照的媒体 |

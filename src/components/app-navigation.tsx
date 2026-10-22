@@ -1,11 +1,12 @@
-import { ClipboardList, History, LayoutDashboard } from "lucide-react";
+import { ClipboardList, History, LayoutDashboard, Search } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { SignOutButton } from "@/components/sign-out-button";
 
-type Page = "overview" | "history" | "logs";
+type Page = "overview" | "scores" | "history" | "logs";
 
 const links = [
   { page: "overview", href: "/", label: "概览", Icon: LayoutDashboard },
+  { page: "scores", href: "/scores", label: "单曲查询", Icon: Search },
   { page: "history", href: "/history", label: "历史", Icon: History },
   { page: "logs", href: "/logs", label: "日志", Icon: ClipboardList },
 ] as const;
