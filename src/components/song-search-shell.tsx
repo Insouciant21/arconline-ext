@@ -125,7 +125,7 @@ export function SongSearchShell() {
               {loading ? "查询中…" : "查询成绩"}
             </Button>
           </form>
-          <p className="song-search-hint">支持曲名关键词搜索，需有效的 Arcaea Online 订阅。</p>
+          <p className="song-search-hint">支持曲名关键词搜索。</p>
         </section>
 
         <section className="song-search-results" aria-label="查询结果" aria-busy={loading}>
