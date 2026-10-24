@@ -169,6 +169,9 @@ input:focus-visible {
 .history-view-tabs button { padding: 9px 16px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); cursor: pointer; }
 .history-view-tabs button[aria-pressed="true"] { background: var(--purple); border-color: var(--purple); color: #fff; }
 .history-compare { margin: 24px 5% 0; min-width: 0; }
+/* Bare block (no card border): pad to the same content edge as the tabs row
+   and the intro/layout cards (21px = 20px card padding + 1px border). */
+.history-compare { padding: 0 21px; }
 .history-compare h2 { margin: 0; font-size: 24px; }
 .history-compare > p { color: var(--muted); font-size: 12px; line-height: 1.7; }
 .compare-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; margin: 20px 0; }
@@ -1451,7 +1454,9 @@ body::before {
 .history-view-tabs {
   display: flex;
   gap: 8px;
-  margin: 0 0 20px;
+  /* margin-block only: horizontal auto margins from .app-content > * keep
+     the tabs aligned with the centered cards on viewports wider than 1440px. */
+  margin-block: 0 20px;
   padding: 0 21px;
 }
 
@@ -1717,7 +1722,7 @@ body::before {
   align-items: center;
   justify-content: flex-start;
   gap: 12px;
-  margin: 0;
+  margin-block: 0;
   padding: 16px 0 0;
   border-top: 1px solid var(--line);
   color: var(--muted-2);
@@ -1958,7 +1963,8 @@ body::before {
   .history-intro { padding: 16px 12px; }
   .history-layout,
   .history-detail { padding: 12px; }
-  .history-view-tabs { padding-right: 13px; padding-left: 13px; }
+  .history-view-tabs,
+  .history-compare { padding-right: 13px; padding-left: 13px; }
 
   .history-overview,
   .logs-overview { grid-template-columns: repeat(3,1fr); min-width: 0; }
@@ -2011,7 +2017,7 @@ body::before {
 
 .history-empty,
 .logs-empty {
-  margin: 0;
+  margin-block: 0;
   padding: 40px 24px;
   border: 1px dashed var(--line-strong);
   background: var(--surface);
