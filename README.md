@@ -22,7 +22,7 @@ B50 未变化时不新增快照、不上传媒体；官网历史仍会更新。P
 
 ## 本地开发
 
-需要 Node.js 22.12+（建议当前 LTS）和 pnpm 10。
+需要 Node.js 22.12+（建议当前 LTS）和 pnpm 12。
 
 ```bash
 pnpm install --frozen-lockfile
@@ -135,7 +135,7 @@ Cloudflare 自动上线使用 Workers Builds：在 Worker → Settings → Build
 
 如果仓库保留通用模板，而实际生产配置未入库，需要在 Workers Builds 的**构建环境加密变量**中设置 `ARCAEA_CONFIG_JSON`，值为完整私有配置的 JSON 内容。工具会将其写入已忽略的 `wrangler.production.jsonc` 并选择该文件，供构建与部署共同使用。不要把此变量设置为 Worker 运行时 Secret，也不要同时设置 `ARCAEA_CONFIG`。普通 GitHub Actions 检查继续使用通用模板。
 
-如果部署的是按钮生成、已写入自己资源绑定的仓库，则直接使用其 `wrangler.jsonc` 即可，无需上述私有配置变量。构建器使用 `.node-version` 指定的 Node.js 24，pnpm 版本固定为 `package.json` 中的 `10.33.2`。生产口令保留在 Worker Secrets。
+如果部署的是按钮生成、已写入自己资源绑定的仓库，则直接使用其 `wrangler.jsonc` 即可，无需上述私有配置变量。构建器使用 `.node-version` 指定的 Node.js 24，pnpm 版本由 `package.json` 的 `packageManager` 字段固定为 12。生产口令保留在 Worker Secrets。
 
 ## API
 
