@@ -2,7 +2,7 @@ import { b50Fingerprint } from "./b50";
 import { getConfig, getLocalDate } from "./config";
 import type { Env } from "./environment";
 import { publicAssetUrl, putSnapshot } from "./r2";
-import type { B50Snapshot, Best50Score, LogEntry, PotentialHistoryPoint } from "./types";
+import type { B50Snapshot, Best50Score, LogEntry, PotentialHistoryPoint, SnapshotSummary } from "./types";
 
 export class Store {
   constructor(readonly env: Env) {}
@@ -18,6 +18,18 @@ export class Store {
   async latest() {
     const row = await this.sql("SELECT body FROM snapshots ORDER BY fetched_at DESC, id DESC LIMIT 1").first<{ body: string }>();
     return row ? (await this.enrich([JSON.parse(row.body)]))[0] : null;
+  }
+  async snapshotSummaries(): Promise<SnapshotSummary[]> {
+    // Summary columns only: the list view must not transfer or parse every
+    // snapshot's full B50 body.
+    const { results } = await this.sql(`SELECT id, fetched_at AS fetchedAt, potential,
+      json_extract(body, '$.weightedPotential') AS weightedPotential,
+      json_extract(body, '$.trigger') AS trigger,
+      json_extract(body, '$.mediaStatus') AS mediaStatus,
+      json_array_length(body, '$.best50') AS entries
+      FROM snapshots ORDER BY fetched_at DESC, id DESC`)
+      .all<{ id: string; fetchedAt: string; potential: number; weightedPotential: number; trigger: B50Snapshot["trigger"]; mediaStatus: B50Snapshot["mediaStatus"]; entries: number }>();
+    return results.map(({ mediaStatus, ...summary }) => ({ ...summary, ...(mediaStatus ? { mediaStatus } : {}) }));
   }
   async enrich(snapshots: B50Snapshot[]) {
     const aliases = await this.cache<number>("alias");
@@ -91,17 +103,26 @@ export class Store {
     return results.map(row => JSON.parse(row.body) as LogEntry);
   }
   async exportArchive() {
-    const snapshots = (await this.snapshots()).reverse();
+    // Rewriting the full archive is O(all data); skip it when no snapshot or
+    // PTT point changed since the last export (rowid maxima move on writes).
+    const [snapshots, points] = await Promise.all([
+      this.sql("SELECT COUNT(*) AS n, MAX(rowid) AS m FROM snapshots").first<{ n: number; m: number }>(),
+      this.sql("SELECT COUNT(*) AS n, MAX(rowid) AS m FROM ptt_points").first<{ n: number; m: number }>(),
+    ]);
+    const fingerprint = `${snapshots?.n ?? 0}:${snapshots?.m ?? 0}:${points?.n ?? 0}:${points?.m ?? 0}`;
+    if ((await this.cache<string>("export")).fingerprint === fingerprint) return;
+    const all = (await this.snapshots()).reverse();
     const history = await this.history();
     const files: Record<string, string> = {
-      "b50-history.json": JSON.stringify(snapshots, null, 2),
+      "b50-history.json": JSON.stringify(all, null, 2),
       "ptt-history.json": JSON.stringify(history, null, 2),
-      "b50-history.csv": buildB50HistoryCsv(snapshots),
+      "b50-history.csv": buildB50HistoryCsv(all),
       "ptt-history.csv": buildPttHistoryCsv(history),
     };
     for (const [name, body] of Object.entries(files)) await this.env.ARCHIVE.put(`exports/${name}`, body + "\n", {
       httpMetadata: { contentType: name.endsWith("csv") ? "text/csv; charset=utf-8" : "application/json; charset=utf-8", cacheControl: "no-cache" },
     });
+    await this.putCache("export", "fingerprint", fingerprint);
   }
 }
 function csv(value: string | number) { const text = String(value); return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; }

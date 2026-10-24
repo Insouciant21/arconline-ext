@@ -116,8 +116,19 @@ export interface DashboardPayload {
   };
 }
 
+export interface SnapshotSummary {
+  id: string;
+  fetchedAt: string;
+  potential: number;
+  weightedPotential: number;
+  trigger: B50Snapshot["trigger"];
+  mediaStatus?: MediaStatus;
+  entries: number;
+}
+
 export interface HistoryPayload {
-  snapshots: B50Snapshot[];
+  snapshots: SnapshotSummary[];
+  detail: B50Snapshot | null;
   sources: {
     d1Count: number;
     r2Count: number;
