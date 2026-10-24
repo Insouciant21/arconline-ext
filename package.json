@@ -49,7 +49,10 @@
       "esbuild",
       "workerd",
       "sharp"
-    ]
+    ],
+    "overrides": {
+      "undici@<7.30.1": "7.30.1"
+    }
   },
   "type": "module",
   "cloudflare": {
