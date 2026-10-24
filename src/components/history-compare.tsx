@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import type { B50Snapshot, SnapshotSummary } from "@/lib/types";
+import type { SnapshotSummary } from "@/lib/types";
 import { compareSnapshots, type ComparedField } from "@/lib/history-diff";
+import { cachedSnapshot, loadSnapshot } from "@/lib/snapshot-cache";
 import { clearTypeLabel, difficultyLabel } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -27,39 +28,29 @@ function fieldValue(field: ComparedField, value: number) {
   return value.toLocaleString("en-US");
 }
 
-// Full snapshots are fetched on demand; the cache survives tab switches so both
-// A/B selections and repeated comparisons reuse what was already loaded.
-const snapshotCache = new Map<string, B50Snapshot>();
-const failedSnapshots = new Set<string>();
-
+// Full snapshots load on demand through the shared cache (snapshot-cache.ts),
+// so comparisons reuse whatever the detail view already fetched.
 export function HistoryCompare({ summaries }: { summaries: SnapshotSummary[] }) {
   const [beforeId, setBeforeId] = React.useState(summaries[1]?.id || summaries[0]?.id || "");
   const [afterId, setAfterId] = React.useState(summaries[0]?.id || "");
   const [showUnchanged, setShowUnchanged] = React.useState(false);
+  const [failedIds, setFailedIds] = React.useState<string[]>([]);
   const [, bump] = React.useReducer((count: number) => count + 1, 0);
 
   React.useEffect(() => {
     let active = true;
-    for (const id of [beforeId, afterId].filter(id => id && !snapshotCache.has(id) && !failedSnapshots.has(id))) {
-      fetch(`/api/snapshots/${encodeURIComponent(id)}`)
-        .then(async (response) => {
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          return await response.json() as B50Snapshot;
-        })
-        .then((snapshot) => {
-          if (!active) return;
-          snapshotCache.set(id, snapshot);
-          bump();
-        })
+    for (const id of [beforeId, afterId].filter(id => id && !cachedSnapshot(id))) {
+      loadSnapshot(id)
+        .then(() => { if (active) bump(); })
         .catch(() => {
-          if (active) { failedSnapshots.add(id); bump(); }
+          if (active) setFailedIds(prev => prev.includes(id) ? prev : [...prev, id]);
         });
     }
     return () => { active = false; };
   }, [beforeId, afterId]);
 
-  const before = snapshotCache.get(beforeId);
-  const after = snapshotCache.get(afterId);
+  const before = cachedSnapshot(beforeId);
+  const after = cachedSnapshot(afterId);
   const rows = React.useMemo(() => before && after ? compareSnapshots(before, after) : [], [before, after]);
   if (summaries.length < 2) return <section className="history-compare"><h2>历史对比</h2><p>至少需要两次历史记录才能对比。</p></section>;
   return (
@@ -71,7 +62,7 @@ export function HistoryCompare({ summaries }: { summaries: SnapshotSummary[] }) 
         <Button variant="secondary" size="sm" onClick={() => { setBeforeId(afterId); setAfterId(beforeId); }}>交换 A / B</Button>
         <label>目标 B<select value={afterId} onChange={(event) => setAfterId(event.target.value)}>{summaries.map((item) => <option key={item.id} value={item.id}>{timestamp(item.fetchedAt)} · {item.potential.toFixed(3)} · {item.id}</option>)}</select></label>
       </div>
-      {beforeId === afterId ? <p role="status">请选择两次不同的历史记录。</p> : failedSnapshots.has(beforeId) || failedSnapshots.has(afterId) ? (
+      {beforeId === afterId ? <p role="status">请选择两次不同的历史记录。</p> : failedIds.includes(beforeId) || failedIds.includes(afterId) ? (
         <p role="alert">快照加载失败，请稍后重试。</p>
       ) : !before || !after ? (
         <p role="status">正在加载快照…</p>

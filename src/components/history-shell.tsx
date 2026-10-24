@@ -6,6 +6,7 @@ import { ScoreCard } from "@/components/score-card";
 import { HistoryCompare } from "@/components/history-compare";
 import { AppNavigation } from "@/components/app-navigation";
 import type { B50Snapshot, HistoryPayload, SnapshotSummary } from "@/lib/types";
+import { cacheSnapshot, cachedSnapshot, loadSnapshot } from "@/lib/snapshot-cache";
 import { formatRelativeDate } from "@/lib/utils";
 
 const beijingDateTime = new Intl.DateTimeFormat("en-CA", {
@@ -34,16 +35,18 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
   const [detail, setDetail] = React.useState(initialData.detail);
   const [detailState, setDetailState] = React.useState<"ready" | "loading" | "error">("ready");
 
-  // The newest snapshot arrives server-rendered; older ones load on demand.
+  // The newest snapshot arrives server-rendered; older ones load on demand
+  // and land in the shared cache, so revisiting one is instant.
+  React.useEffect(() => {
+    if (initialData.detail) cacheSnapshot(initialData.detail);
+  }, []);
   React.useEffect(() => {
     if (!selectedId || detail?.id === selectedId) return;
+    const cached = cachedSnapshot(selectedId);
+    if (cached) { setDetail(cached); setDetailState("ready"); return; }
     let active = true;
     setDetailState("loading");
-    fetch(`/api/snapshots/${encodeURIComponent(selectedId)}`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return await response.json() as B50Snapshot;
-      })
+    loadSnapshot(selectedId)
       .then((snapshot) => {
         if (!active) return;
         setDetail(snapshot);
