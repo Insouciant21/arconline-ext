@@ -67,7 +67,7 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
       <section className="history-intro" aria-labelledby="history-title">
         <div>
           <p className="section-kicker"><HistoryIcon size={13} /> ARCHIVE TIMELINE</p>
-          <h1 id="history-title">历史 <span>/ HISTORY</span></h1>
+          <h1 id="history-title">历史 <span>/ FRAGMENTS</span></h1>
         </div>
       </section>
 
