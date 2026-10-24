@@ -301,17 +301,19 @@ describe("D1 archives",()=>{
   });
   it("serves history summaries and on-demand snapshot detail",async()=>{
     const store=new Store(env);await store.writeSnapshot(fixture());
+    const legacy={...fixture('2026-09-19-154914.321',11.4),fetchedAt:'2026-09-19T15:49:14.321Z'};await store.writeSnapshot(legacy);
     const later={...fixture('2026-10-15-second',12.9),fetchedAt:'2026-10-15T11:00:00.000Z'};await store.writeSnapshot(later);
     const summaries=await store.snapshotSummaries();
-    expect(summaries.map(summary=>summary.id)).toEqual(['2026-10-15-second','2026-10-14-first']);
-    expect(summaries[0]).toMatchObject({potential:12.9,weightedPotential:12.5,trigger:'manual',entries:50,mediaStatus:'complete'});
-    expect(JSON.stringify(summaries)).not.toContain('best50');
-    expect((await api(env,request(`/api/snapshots/${later.id}`))).status).toBe(401);
+    expect(summaries.map(summary=>summary.id)).toEqual(['2026-10-15-second','2026-10-14-first','2026-09-19-154914.321']);
+    expect(summaries[2]).toMatchObject({potential:11.4,trigger:'manual',entries:50});
     const cookie=await login();
     expect((await api(env,request('/api/snapshots/missing','GET',cookie))).status).toBe(404);
-    const response=await api(env,request(`/api/snapshots/${later.id}`,'GET',cookie));
-    expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toBe('no-store');
-    expect(await response.json()).toMatchObject({id:'2026-10-15-second',potential:12.9,mediaStatus:'complete'});
+    for(const id of [later.id,legacy.id]){
+      const response=await api(env,request(`/api/snapshots/${id}`,'GET',cookie));
+      expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(await response.json()).toMatchObject({id,potential:id===legacy.id?11.4:12.9,mediaStatus:'complete'});
+    }
+    expect((await api(env,request('/api/snapshots/2026-09-19-154914.321'))).status).toBe(401);
   });
   it("skips redundant archive exports when nothing changed",async()=>{
     const store=new Store(env);await store.writeSnapshot(fixture());

@@ -34,7 +34,10 @@ export async function api(env: Env, request: Request, background?: Pick<Executio
       method(request, match[2] ? "POST" : "GET");
       return json(match[2] ? await retryJob(env, match[1]) : await getJob(env, match[1]), match[2] ? 202 : 200);
     }
-    const snapshotMatch = path.match(/^\/api\/snapshots\/([0-9a-z-]+)$/i);
+    // Legacy snapshots migrated from the old server use date-time ids with
+    // dots (2026-09-19-154914.321); newer ones append a UUID. The id is only
+    // ever a parameterized D1 lookup value, never an R2 key or SQL fragment.
+    const snapshotMatch = path.match(/^\/api\/snapshots\/([0-9a-z.-]+)$/i);
     if (snapshotMatch) {
       method(request, "GET");
       const store = new Store(env);
