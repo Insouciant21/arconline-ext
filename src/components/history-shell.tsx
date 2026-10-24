@@ -7,6 +7,7 @@ import { HistoryCompare } from "@/components/history-compare";
 import { AppNavigation } from "@/components/app-navigation";
 import type { B50Snapshot, HistoryPayload, SnapshotSummary } from "@/lib/types";
 import { cacheSnapshot, cachedSnapshot, loadSnapshot } from "@/lib/snapshot-cache";
+import { exactWeightedPotential } from "@/lib/potential";
 import { formatRelativeDate } from "@/lib/utils";
 
 const beijingDateTime = new Intl.DateTimeFormat("en-CA", {
@@ -195,10 +196,10 @@ function HistoryDetail({ snapshot, delta }: { snapshot: B50Snapshot; delta?: num
       <div className="history-detail-meta">
         <span className={`media-status media-${mediaStatus}`}>{mediaStatus === "complete" ? "MEDIA READY" : mediaStatus === "processing" ? "MEDIA PROCESSING" : "MEDIA PARTIAL"}</span>
         <span>{snapshot.best50.length} / 50 ENTRIES</span>
-        <span>WEIGHTED {snapshot.weightedPotential.toFixed(3)}</span>
+        <span>WEIGHTED {exactWeightedPotential(snapshot.best50).toFixed(5)}</span>
       </div>
 
-      <div className="formula-strip"><span><strong>TOP 10</strong> × 2 = {top10.toFixed(3)}</span><i /><span><strong>REST {Math.max(snapshot.best50.length - 10, 0)}</strong> = {rest40.toFixed(3)}</span><span className="formula-result">TOTAL / 60 = <strong>{snapshot.weightedPotential.toFixed(3)}</strong></span></div>
+      <div className="formula-strip"><span><strong>TOP 10</strong> × 2 = {top10.toFixed(5)}</span><i /><span><strong>REST {Math.max(snapshot.best50.length - 10, 0)}</strong> = {rest40.toFixed(5)}</span><span className="formula-result">TOTAL / 60 = <strong>{((top10 * 2 + rest40) / 60).toFixed(5)}</strong></span></div>
       <div className="score-grid">{snapshot.best50.map((score, index) => <ScoreCard key={`${snapshot.id}-${score.songId}-${score.difficulty}-${index}`} score={score} rank={index + 1} />)}</div>
     </section>
   );
