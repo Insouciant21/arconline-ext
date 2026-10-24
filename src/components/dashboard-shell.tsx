@@ -159,7 +159,7 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
         </div>
         {latest ? (
           <>
-            <div className="formula-strip"><span><strong>TOP 10</strong> × 2 = {top10.toFixed(3)}</span><i /> <span><strong>REST 40</strong> = {rest40.toFixed(3)}</span> <span className="formula-result">TOTAL / 60 = <strong>{latest.weightedPotential.toFixed(3)}</strong></span></div>
+            <div className="formula-strip"><span><strong>TOP 10</strong> × 2 = {top10.toFixed(5)}</span><i /> <span><strong>REST 40</strong> = {rest40.toFixed(5)}</span> <span className="formula-result">TOTAL / 60 = <strong>{((top10 * 2 + rest40) / 60).toFixed(5)}</strong></span></div>
             <div className="score-grid">{latest.best50.map((score, index) => <ScoreCard key={`${score.songId}-${score.difficulty}-${index}`} score={score} rank={index + 1} />)}</div>
           </>
         ) : <EmptyState title="还没有 B50 快照" description="使用玩家信息卡片下方的获取器登录 Lowiro，抓取并保存首份快照。" />}

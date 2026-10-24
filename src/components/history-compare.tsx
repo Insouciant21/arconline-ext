@@ -4,6 +4,7 @@ import * as React from "react";
 import type { SnapshotSummary } from "@/lib/types";
 import { compareSnapshots, type ComparedField } from "@/lib/history-diff";
 import { cachedSnapshot, loadSnapshot } from "@/lib/snapshot-cache";
+import { exactWeightedPotential } from "@/lib/potential";
 import { clearTypeLabel, difficultyLabel } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -69,7 +70,7 @@ export function HistoryCompare({ summaries }: { summaries: SnapshotSummary[] }) 
       ) : <>
         <div className="compare-summary">
           <span>潜力值：{before.potential.toFixed(3)} → {after.potential.toFixed(3)} <strong>({delta(after.potential - before.potential, 3)})</strong></span>
-          <span>加权 PTT：{before.weightedPotential.toFixed(3)} → {after.weightedPotential.toFixed(3)} <strong>({delta(after.weightedPotential - before.weightedPotential, 3)})</strong></span>
+          <span>加权 PTT：{exactWeightedPotential(before.best50).toFixed(5)} → {exactWeightedPotential(after.best50).toFixed(5)} <strong>({delta(exactWeightedPotential(after.best50) - exactWeightedPotential(before.best50), 5)})</strong></span>
           <span>{Object.entries(kinds).map(([kind, label]) => `${label} ${rows.filter((row) => row.kind === kind).length}`).join(" · ")}</span>
         </div>
         <label className="compare-filter"><input type="checkbox" checked={showUnchanged} onChange={(event) => setShowUnchanged(event.target.checked)} />显示未变化的谱面</label>
