@@ -109,10 +109,10 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
             </div>
           </aside>
 
-          {detailState === "error" ? (
-            <p className="history-detail-status" role="alert">快照加载失败，请刷新页面重试。</p>
-          ) : detail && detail.id === selectedId ? (
+          {detail ? (
             <HistoryDetail snapshot={detail} delta={deltaAgainst(initialData.snapshots, initialData.snapshots.findIndex((summary) => summary.id === detail.id))} />
+          ) : detailState === "error" ? (
+            <p className="history-detail-status" role="alert">快照加载失败，请刷新页面重试。</p>
           ) : (
             <p className="history-detail-status" role="status">正在加载快照…</p>
           )}
