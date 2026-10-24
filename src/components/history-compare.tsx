@@ -66,7 +66,7 @@ export function HistoryCompare({ summaries }: { summaries: SnapshotSummary[] }) 
       {beforeId === afterId ? <p role="status">请选择两次不同的历史记录。</p> : failedIds.includes(beforeId) || failedIds.includes(afterId) ? (
         <p role="alert">快照加载失败，请稍后重试。</p>
       ) : !before || !after ? (
-        <p role="status">正在加载快照…</p>
+        <p role="status">正在加载</p>
       ) : <>
         <div className="compare-summary">
           <span>潜力值：{before.potential.toFixed(3)} → {after.potential.toFixed(3)} <strong>({delta(after.potential - before.potential, 3)})</strong></span>

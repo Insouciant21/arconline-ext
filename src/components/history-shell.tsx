@@ -115,7 +115,7 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
           ) : detailState === "error" ? (
             <p className="history-detail-status" role="alert">快照加载失败，请刷新页面重试。</p>
           ) : (
-            <p className="history-detail-status" role="status">正在加载快照…</p>
+            <p className="history-detail-status" role="status">正在加载</p>
           )}
         </section>
       ) : (
