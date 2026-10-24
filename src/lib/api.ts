@@ -34,6 +34,14 @@ export async function api(env: Env, request: Request, background?: Pick<Executio
       method(request, match[2] ? "POST" : "GET");
       return json(match[2] ? await retryJob(env, match[1]) : await getJob(env, match[1]), match[2] ? 202 : 200);
     }
+    const snapshotMatch = path.match(/^\/api\/snapshots\/([0-9a-z-]+)$/i);
+    if (snapshotMatch) {
+      method(request, "GET");
+      const store = new Store(env);
+      const snapshot = await store.snapshot(snapshotMatch[1]);
+      if (!snapshot) throw new AppError("快照不存在。", 404, "SNAPSHOT_NOT_FOUND");
+      return json((await store.enrich([snapshot]))[0]);
+    }
     if (path.startsWith("/api/media/")) {
       return await serveMedia(env, request, background);
     }

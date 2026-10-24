@@ -14,7 +14,7 @@
 - 管理口令登录，随机 Cookie 会话有效期七天；会话摘要保存在 D1，退出立即撤销。
 - 登录接口同时使用 Workers Rate Limiting binding 与 D1 尝试计数限制暴力破解。
 
-B50 未变化时不新增快照、不上传媒体；官网历史仍会更新。PTT 图表合并官网历史和快照，按北京时间取每日最高值。历史页直接查询 D1，不在每次请求中扫描 R2。日志保留最近 500 条。
+B50 未变化时不新增快照、不上传媒体；官网历史仍会更新。PTT 图表合并官网历史和快照，按北京时间取每日最高值。历史页列表只查询 D1 摘要列，详情与对比通过 `/api/snapshots/{id}` 按需加载完整快照，不在每次请求中传输全量 JSON 或扫描 R2；归档导出在数据无变化时跳过重写。日志保留最近 500 条。
 
 单曲查询页 `/scores` 按曲名关键词或歌曲 ID、难度查询当前账号的官网最佳成绩，支持排序和每页十条的分页。需要有效的 Arcaea Online 订阅；展示分数、PURE（+大 PURE）、FAR、LOST、成绩时间、最佳通关状态及年内游玩次数。查询结果不写入 B50 历史，曲绘复用私有 R2 缓存；官网账号和会话只用于服务端请求。
 
@@ -125,7 +125,7 @@ pnpm exec wrangler secret put ADMIN_TOKEN --config wrangler.production.jsonc
 
 `LOGIN_RATE_LIMITER` 在每个 Cloudflare 数据中心按客户端 IP 允许 10 秒内 20 次登录请求，超过后返回 `429`。应用层仍按 IP 在 D1 记录失败次数，一分钟内超过 5 次同样返回 `429`。两层限制分别应对突发流量和持续暴力猜测。
 
-媒体请求先校验登录，再读取 Worker Cache API，未命中时通过 `ARCHIVE` binding 流式读取 R2。边缘缓存和浏览器私有缓存均为一小时，支持 ETag / `If-None-Match` 返回 `304`、HEAD 请求；浏览器响应带 `Vary: Cookie`。`X-Media-Cache: HIT/MISS` 可用于诊断。缓存异常时回退 R2，错误响应不缓存。边缘缓存仅在正式自定义域名上验证，`workers.dev` 不提供相同缓存行为；缓存可能在 TTL 前被淘汰。同 key 对象更新最多延迟一小时可见。页面和业务响应不进入公共缓存。
+媒体请求先校验登录，再读取 Worker Cache API，未命中时通过 `ARCHIVE` binding 流式读取 R2。媒体键均为一次写入（`charts/` 与 `characters/` 按 Lowiro 内容哈希寻址，`potential/` 按唯一快照 ID 寻址，重试只重传相同字节），因此边缘缓存和浏览器私有缓存均为一年，支持 ETag / `If-None-Match` 返回 `304`、HEAD 请求；浏览器响应带 `Vary: Cookie`。`X-Media-Cache: HIT/MISS` 可用于诊断。缓存异常时回退 R2，错误响应不缓存。边缘缓存仅在正式自定义域名上验证，`workers.dev` 不提供相同缓存行为；缓存可能在 TTL 前被淘汰。页面和业务响应不进入公共缓存。
 
 ## GitHub 自动构建与部署
 
@@ -145,6 +145,7 @@ Cloudflare 自动上线使用 Workers Builds：在 Worker → Settings → Build
 | POST | `/api/auth/logout` | 撤销会话 |
 | GET | `/api/auth/session` | 查询登录状态 |
 | GET | `/api/dashboard` | 当前 B50、每日 PTT、活动任务 |
+| GET | `/api/snapshots/{id}` | 单个快照的完整数据，供历史页按需加载 |
 | GET | `/api/scores?term=Aegleseeker&difficulty=2&page=1&sort=title` | 查询官网个人最佳成绩，返回 `{ scores, count }`；难度 0–4，排序支持 `title`、`date`、`score`、`score_below_max` |
 | POST | `/api/sync` | 提交同步，返回 `202 { jobId, status }` |
 | POST | `/api/history/import` | 提交官网 PTT 历史导入 |

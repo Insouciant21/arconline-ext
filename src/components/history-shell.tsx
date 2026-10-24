@@ -5,13 +5,35 @@ import { Archive, Database, History as HistoryIcon } from "lucide-react";
 import { ScoreCard } from "@/components/score-card";
 import { HistoryCompare } from "@/components/history-compare";
 import { AppNavigation } from "@/components/app-navigation";
-import type { B50Snapshot, HistoryPayload } from "@/lib/types";
+import type { B50Snapshot, HistoryPayload, SnapshotSummary } from "@/lib/types";
 import { formatRelativeDate } from "@/lib/utils";
 
 export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
   const [comparing, setComparing] = React.useState(false);
   const [selectedId, setSelectedId] = React.useState(initialData.snapshots[0]?.id || "");
-  const selected = initialData.snapshots.find((snapshot) => snapshot.id === selectedId) || initialData.snapshots[0];
+  const [detail, setDetail] = React.useState(initialData.detail);
+  const [detailState, setDetailState] = React.useState<"ready" | "loading" | "error">("ready");
+
+  // The newest snapshot arrives server-rendered; older ones load on demand.
+  React.useEffect(() => {
+    if (!selectedId || detail?.id === selectedId) return;
+    let active = true;
+    setDetailState("loading");
+    fetch(`/api/snapshots/${encodeURIComponent(selectedId)}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return await response.json() as B50Snapshot;
+      })
+      .then((snapshot) => {
+        if (!active) return;
+        setDetail(snapshot);
+        setDetailState("ready");
+      })
+      .catch(() => {
+        if (active) setDetailState("error");
+      });
+    return () => { active = false; };
+  }, [selectedId, detail?.id]);
 
   return (
     <main className="app-shell history-shell">
@@ -30,7 +52,7 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
         <button type="button" aria-pressed={comparing} onClick={() => setComparing(true)}>对比两次历史</button>
       </div>
 
-      {comparing ? <HistoryCompare snapshots={initialData.snapshots} /> : selected ? (
+      {comparing ? <HistoryCompare summaries={initialData.snapshots} /> : initialData.snapshots.length ? (
         <section className="history-layout">
           <aside className="history-index" aria-label="历史快照列表">
             <div className="history-index-heading">
@@ -43,14 +65,20 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
                   key={snapshot.id}
                   snapshot={snapshot}
                   index={index}
-                  active={snapshot.id === selected.id}
+                  active={snapshot.id === selectedId}
                   onClick={() => setSelectedId(snapshot.id)}
                 />
               ))}
             </div>
           </aside>
 
-          <HistoryDetail snapshot={selected} />
+          {detailState === "error" ? (
+            <p className="history-detail-status" role="alert">快照加载失败，请刷新页面重试。</p>
+          ) : detail && detail.id === selectedId ? (
+            <HistoryDetail snapshot={detail} />
+          ) : (
+            <p className="history-detail-status" role="status">正在加载快照…</p>
+          )}
         </section>
       ) : (
         <section className="history-empty">
@@ -73,7 +101,7 @@ function HistoryIndexButton({
   active,
   onClick,
 }: {
-  snapshot: B50Snapshot;
+  snapshot: SnapshotSummary;
   index: number;
   active: boolean;
   onClick: () => void;
@@ -90,7 +118,7 @@ function HistoryIndexButton({
       <span className="history-index-copy">
         <time dateTime={snapshot.fetchedAt}>{formatRelativeDate(snapshot.fetchedAt)}</time>
         <strong>{snapshot.potential.toFixed(3)}</strong>
-        <small>{snapshot.trigger.toUpperCase()} · {snapshot.best50.length} ENTRIES</small>
+        <small>{snapshot.trigger.toUpperCase()} · {snapshot.entries} ENTRIES</small>
       </span>
       <span className={`history-status history-status-${mediaStatus}`}>{mediaStatus === "complete" ? "READY" : mediaStatus === "processing" ? "SYNC" : "PARTIAL"}</span>
     </button>

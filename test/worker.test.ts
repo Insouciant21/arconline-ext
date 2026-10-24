@@ -147,7 +147,7 @@ describe("authentication and API",()=>{
     const get = vi.spyOn(env.ARCHIVE, 'get');
     const first = await api(env, request(path, 'GET', cookie));
     expect(first.headers.get('x-media-cache')).toBe('MISS');
-    expect(first.headers.get('cache-control')).toBe('private, max-age=3600');
+    expect(first.headers.get('cache-control')).toBe('private, max-age=31536000, immutable');
     expect(first.headers.get('cdn-cache-control')).toBe('no-store');
     expect(first.headers.get('vary')).toBe('Cookie');
     expect(new TextDecoder().decode(await first.arrayBuffer())).toBe('cached-image');
@@ -298,6 +298,29 @@ describe("D1 archives",()=>{
     await store.mergeOfficial([{timePlayed:Date.parse('2026-10-14T12:00:00Z'),potential:12.8}]);
     expect((await store.snapshots()).length).toBe(2);expect((await store.latest())!.id).toBe('later');expect((await store.history())[0].potential).toBe(12.8);
     await store.exportArchive();expect(await env.ARCHIVE.head('exports/b50-history.csv')).not.toBeNull();
+  });
+  it("serves history summaries and on-demand snapshot detail",async()=>{
+    const store=new Store(env);await store.writeSnapshot(fixture());
+    const later={...fixture('2026-10-15-second',12.9),fetchedAt:'2026-10-15T11:00:00.000Z'};await store.writeSnapshot(later);
+    const summaries=await store.snapshotSummaries();
+    expect(summaries.map(summary=>summary.id)).toEqual(['2026-10-15-second','2026-10-14-first']);
+    expect(summaries[0]).toMatchObject({potential:12.9,weightedPotential:12.5,trigger:'manual',entries:50,mediaStatus:'complete'});
+    expect(JSON.stringify(summaries)).not.toContain('best50');
+    expect((await api(env,request(`/api/snapshots/${later.id}`))).status).toBe(401);
+    const cookie=await login();
+    expect((await api(env,request('/api/snapshots/missing','GET',cookie))).status).toBe(404);
+    const response=await api(env,request(`/api/snapshots/${later.id}`,'GET',cookie));
+    expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toMatchObject({id:'2026-10-15-second',potential:12.9,mediaStatus:'complete'});
+  });
+  it("skips redundant archive exports when nothing changed",async()=>{
+    const store=new Store(env);await store.writeSnapshot(fixture());
+    const put=vi.spyOn(env.ARCHIVE,'put');
+    const exportWrites=()=>put.mock.calls.filter(([key])=>String(key).startsWith('exports/')).length;
+    await store.exportArchive();const writes=exportWrites();expect(writes).toBeGreaterThan(0);
+    await store.exportArchive();expect(exportWrites()).toBe(writes);
+    await store.mergeOfficial([{timePlayed:Date.parse('2026-10-16T10:00:00Z'),potential:13}]);
+    await store.exportArchive();expect(exportWrites()).toBeGreaterThan(writes);
   });
   it("retains the B50 formula and comparisons",()=>{
     expect(calculateWeightedPotential(Array(50).fill(12))).toBe(12);
