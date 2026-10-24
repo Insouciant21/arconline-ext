@@ -1722,7 +1722,10 @@ body::before {
   align-items: center;
   justify-content: flex-start;
   gap: 12px;
-  margin-block: 0;
+  /* Collapses with the preceding card's 24px bottom margin; gives bare
+     predecessors (empty states, compare panel) their own separation so the
+     footer border never touches their border. */
+  margin-block: 24px 0;
   padding: 16px 0 0;
   border-top: 1px solid var(--line);
   color: var(--muted-2);
