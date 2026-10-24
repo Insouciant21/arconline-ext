@@ -26,7 +26,14 @@
 
 * { box-sizing: border-box; }
 
-html { scroll-behavior: smooth; overflow-x: hidden; overflow-x: clip; }
+html {
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+  overflow-x: clip;
+  /* Reserve the scrollbar gutter so switching views (e.g. history snapshots)
+     never changes the page width when content height crosses the viewport. */
+  scrollbar-gutter: stable;
+}
 
 body {
   min-width: 320px;
