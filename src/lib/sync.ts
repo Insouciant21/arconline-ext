@@ -85,7 +85,10 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
     if (!snapshot) throw new AppError("任务快照不存在。", 404, "SNAPSHOT_MISSING");
     snapshot.mediaStatus = "processing"; delete snapshot.mediaError;
     const items = state.media || (state.media = mediaItems(snapshot));
-    const pending = items.filter(item => !item.done).slice(0, 8);
+    // 25 per invocation: a full B50 (~51 items) finishes in three deliveries
+    // instead of seven, so media logs in to Lowiro at most three times. Worst
+    // case stays well inside the queue consumer's time budget.
+    const pending = items.filter(item => !item.done).slice(0, 25);
     const client = pending.length ? await ArcaeaClient.login(env) : null;
     // Checkpoint after each pair: a redelivery can HEAD deterministic R2 keys
     // and recover an upload that finished before its database checkpoint.
