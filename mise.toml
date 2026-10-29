@@ -1,0 +1,83 @@
+min_version = "2026.10.22"
+
+[settings]
+# Share version declarations with Cloudflare Builds rather than maintaining two sets.
+# Node comes from .node-version; pnpm comes from package.json's packageManager.
+idiomatic_version_file_enable_tools = ["node", "pnpm"]
+
+[tasks.install]
+description = "Install project dependencies from pnpm-lock.yaml"
+run = "pnpm install --frozen-lockfile"
+
+[tasks.dev]
+description = "Start the local Astro development server"
+run = "pnpm run dev"
+
+[tasks."dev:stop"]
+description = "Stop the Astro development server"
+run = "pnpm exec astro dev stop"
+
+[tasks."dev:status"]
+description = "Show the Astro development server status"
+run = "pnpm exec astro dev status"
+
+[tasks."dev:logs"]
+description = "Show the Astro development server logs"
+run = "pnpm exec astro dev logs"
+
+[tasks.typecheck]
+description = "Check Astro and TypeScript types"
+run = "pnpm run typecheck"
+
+[tasks.test]
+description = "Run Worker and deployment configuration tests"
+run = "pnpm run test"
+
+[tasks.build]
+description = "Build the Astro Worker"
+run = "pnpm run build"
+
+[tasks.preview]
+description = "Preview the built Worker locally"
+run = "pnpm run preview"
+
+[tasks.ci]
+description = "Install dependencies, then typecheck, test and build in order"
+depends = ["install"]
+run = "pnpm run ci:build"
+
+[tasks."db:migrate"]
+description = "Apply local D1 schema migrations"
+run = "pnpm run db:migrate"
+
+[tasks."db:migrate:remote"]
+description = "Apply remote D1 schema migrations using wrangler.jsonc"
+run = "pnpm run db:migrate:remote"
+
+[tasks."test:browser:install"]
+description = "Install Chromium for browser smoke tests"
+run = "pnpm exec playwright install chromium"
+
+[tasks."test:browser"]
+description = "Smoke test the overview, history and logs pages"
+run = "pnpm run test:browser"
+
+[tasks."test:browser:scores"]
+description = "Smoke test song search and responsive dropdowns"
+run = "pnpm run test:browser:scores"
+
+[tasks."test:api"]
+description = "Smoke test the configured API target"
+run = "node scripts/smoke-api.mjs"
+
+[tasks.deploy]
+description = "Build, migrate remote D1 and deploy the selected Worker"
+run = "pnpm run deploy"
+
+[tasks."deploy:production"]
+description = "Deploy using the private wrangler.production.jsonc configuration"
+run = "pnpm run deploy:production"
+
+[tasks.wrangler]
+description = "Run the project's pinned Wrangler CLI"
+run = "pnpm exec wrangler"

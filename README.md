@@ -22,38 +22,80 @@ B50 未变化时不新增快照、不上传媒体；官网历史仍会更新。P
 
 ## 本地开发
 
-需要 Node.js 22.12+（建议当前 LTS）和 pnpm 12。
+使用 [mise](https://mise.jdx.dev/getting-started.html)（2026.10.22 或更新版本）管理开发工具与任务。Node.js 版本由 `.node-version` 指定为 `24.22.1`，pnpm 版本由 `package.json` 的 `packageManager` 指定为 `12.15.0`；mise 与 Cloudflare Builds 共用这两处声明。`mise.lock` 锁定工具版本、下载地址与校验信息，`pnpm-lock.yaml` 锁定项目依赖。
+
+首次克隆后，在项目根目录执行；已有 `.dev.vars` 时保留原文件：
 
 ```bash
-pnpm install --frozen-lockfile
-cp .dev.vars.example .dev.vars
-pnpm db:migrate
-pnpm dev
+mise trust
+mise install --locked
+mise run install
+if [ ! -f .dev.vars ]; then cp .dev.vars.example .dev.vars; fi
+mise run db:migrate
+mise run dev
 ```
 
-开发使用本地 D1/R2/队列模拟器，默认不连接正式数据。`pnpm dev` 的输出会说明本机访问地址；Astro 7 可使用 `pnpm exec astro dev stop` 停止后台开发服务。
+`mise trust` 信任此仓库的工具与任务配置；`mise install --locked` 安装 Node.js 和 pnpm；`mise run install` 才安装 `node_modules`。安装工具只影响 mise 管理的版本，不需要另装 Corepack。
 
-`migrations/` 用于 D1 建表和数据库结构版本管理；`pnpm db:migrate` 初始化或更新本地数据库。它们是当前 Cloudflare 部署的一部分。
+开发使用本地 D1/R2/队列模拟器，默认不连接正式数据。`mise run dev` 的输出会说明本机访问地址；Astro 7 的开发服务可在后台运行，使用 `mise run dev:status` 查看状态、`mise run dev:logs` 查看日志、`mise run dev:stop` 停止。
+
+`migrations/` 用于 D1 建表和数据库结构版本管理；`mise run db:migrate` 初始化或更新本地数据库。它们是当前 Cloudflare 部署的一部分。
+
+### mise 基础用法
+
+`mise.toml` 定义项目任务；`mise run <任务名>` 使用项目指定的工具执行任务，不依赖终端当前的 Node.js 或 pnpm。完整任务列表可用 `mise tasks ls` 查看。
+
+| 命令 | 用途 |
+| --- | --- |
+| `mise current` | 查看项目选中的工具版本 |
+| `mise which node` / `mise which pnpm` | 查看工具的实际路径 |
+| `mise tasks ls` | 查看任务及说明 |
+| `mise run dev` | 启动本地开发服务 |
+| `mise run typecheck` | 检查 Astro 和 TypeScript 类型 |
+| `mise run test` | 执行自动测试 |
+| `mise run build` | 构建 Worker |
+| `mise run preview` | 在本地预览构建结果 |
+| `mise run ci` | 安装锁定依赖，再顺序执行类型检查、测试和构建 |
+| `mise exec -- <命令>` | 使用项目工具执行任意命令 |
+
+例如添加依赖、检查工具版本或给任务传参：
 
 ```bash
-pnpm typecheck
-pnpm test
-pnpm build
-pnpm preview
+mise exec -- node --version
+mise exec -- pnpm --version
+mise exec -- pnpm add <包名>
+mise run dev -- --host 0.0.0.0
+mise run deploy:production -- --dry-run
 ```
+
+`--` 后的参数传给任务实际执行的命令。`mise run deploy` 和 `mise run deploy:production` 不带 `--dry-run` 时会更新远程数据库并发布。
+
+如果希望进入项目目录后，直接输入 `node`、`pnpm` 也自动选择项目版本，把当前 shell 对应的一行加入启动文件，再重新打开终端：
+
+```bash
+# Bash：~/.bashrc
+eval "$(mise activate bash)"
+
+# Zsh：~/.zshrc
+eval "$(mise activate zsh)"
+```
+
+`mise run` 和 `mise exec` 无需激活 shell。WSL 内应使用 Linux 版工具；`mise which pnpm` 应指向 mise 的安装目录，避免误用 Windows 的 fnm/pnpm 路径。
+
+本项目升级 Node.js 时修改 `.node-version`，升级 pnpm 时修改 `package.json` 的 `packageManager`，然后执行 `mise lock node pnpm`、`mise install --locked` 和 `mise run ci`。`mise use` 通常会向 `mise.toml` 写入工具版本，本项目采用上述版本文件作为来源。个人覆盖配置可放在已忽略的 `mise.local.toml`；本地 Worker 配置仍使用 `.dev.vars`，生产口令使用 Worker Secrets。
 
 自动测试覆盖当前 Worker 的鉴权、媒体缓存、D1 归档、队列重试和部署配置。测试使用本地模拟资源，不访问正式数据；故障恢复测试会捕获并校验预期错误日志。
 
 浏览器冒烟测试需要本地有至少两份历史快照：
 
 ```bash
-pnpm exec playwright install chromium
-pnpm test:browser
+mise run test:browser:install
+mise run test:browser
 ```
 
-`pnpm test:browser:scores` 单独检查单曲查询交互，使用模拟官网响应，不需要本地快照或官网账号。
+`mise run test:browser:scores` 单独检查单曲查询交互，使用模拟官网响应，不需要本地快照或官网账号。
 
-默认访问 `http://127.0.0.1:4321`、口令 `local-test-token`。可通过 `SMOKE_ORIGIN`、`SMOKE_TOKEN` 或 `SMOKE_ENV_FILE` 指定目标与凭据。截图写入已忽略的 `test-results/browser/`。`node scripts/smoke-api.mjs` 使用相同的目标与凭据配置检查 API。
+默认访问 `http://127.0.0.1:4321`、口令 `local-test-token`。可通过 `SMOKE_ORIGIN`、`SMOKE_TOKEN` 或 `SMOKE_ENV_FILE` 指定目标与凭据。截图写入已忽略的 `test-results/browser/`。`mise run test:api` 使用相同的目标与凭据配置检查 API。
 
 ## 配置与部署
 
@@ -76,24 +118,26 @@ Cloudflare 按其[部署按钮规则](https://developers.cloudflare.com/workers/
 ### 手动部署
 
 ```bash
-pnpm install --frozen-lockfile
-pnpm exec wrangler login
-pnpm exec wrangler d1 create arconline-ext
-pnpm exec wrangler r2 bucket create arconline-ext
-pnpm exec wrangler queues create arconline-ext-jobs
-pnpm exec wrangler queues create arconline-ext-jobs-failed
+mise trust
+mise install --locked
+mise run install
+mise run wrangler -- login
+mise run wrangler -- d1 create arconline-ext
+mise run wrangler -- r2 bucket create arconline-ext
+mise run wrangler -- queues create arconline-ext-jobs
+mise run wrangler -- queues create arconline-ext-jobs-failed
 ```
 
 将新数据库的 ID 填入 `wrangler.jsonc` 的 `DB.database_id`。如修改资源名，同时更新相应绑定及队列消费者引用；同一账户部署多个实例时，各实例需使用不同的 Worker、数据库、桶和队列名称。
 
 ```bash
-pnpm exec wrangler secret put ADMIN_TOKEN --config wrangler.jsonc
-pnpm exec wrangler secret put USERNAME --config wrangler.jsonc
-pnpm exec wrangler secret put PASSWD --config wrangler.jsonc
-pnpm run deploy
+mise run wrangler -- secret put ADMIN_TOKEN --config wrangler.jsonc
+mise run wrangler -- secret put USERNAME --config wrangler.jsonc
+mise run wrangler -- secret put PASSWD --config wrangler.jsonc
+mise run deploy
 ```
 
-`pnpm run deploy` 会重新构建、更新远程数据库结构并部署，数据库更新失败时不会发布。未填写真实 D1 ID 时会提前停止。使用 `pnpm run deploy --dry-run` 只构建并验证打包，不更新数据库或发布。必须使用 `pnpm run deploy`，因为 `pnpm deploy` 是 pnpm 自身的工作区命令。
+`mise run deploy` 会调用现有部署脚本，重新构建、更新远程数据库结构并部署，数据库更新失败时不会发布。未填写真实 D1 ID 时会提前停止。使用 `mise run deploy -- --dry-run` 只构建并验证打包，不更新数据库或发布。Cloudflare 等没有 mise 的环境继续使用等效的 `pnpm run deploy`；注意 `pnpm deploy` 是 pnpm 自身的工作区命令。
 
 自定义域名可在自己的配置中添加 `routes`，由 Cloudflare 管理 DNS 与证书：
 
@@ -110,14 +154,14 @@ pnpm run deploy
 cp wrangler.jsonc wrangler.production.jsonc
 
 # 显式使用私有配置构建并部署
-pnpm run deploy:production
-pnpm run deploy:production --dry-run
+mise run deploy:production
+mise run deploy:production -- --dry-run
 
 # 更新私有配置对应 Worker 的 Secret
-pnpm exec wrangler secret put ADMIN_TOKEN --config wrangler.production.jsonc
+mise run wrangler -- secret put ADMIN_TOKEN --config wrangler.production.jsonc
 ```
 
-已有私有配置时不要用模板覆盖它。普通 `pnpm build` 和 `pnpm run deploy` 始终默认使用公开配置，不会因本地存在私有文件而自动切换。Astro 构建和维护脚本可通过 `ARCAEA_CONFIG=wrangler.production.jsonc` 显式选择；直接调用 Wrangler 时使用 `--config`，Wrangler 本身不识别 `ARCAEA_CONFIG`。
+已有私有配置时不要用模板覆盖它。普通 `mise run build` 和 `mise run deploy` 始终默认使用公开配置，不会因本地存在私有文件而自动切换。Astro 构建和维护脚本可通过 `ARCAEA_CONFIG=wrangler.production.jsonc` 显式选择；直接调用 Wrangler 时使用 `--config`，Wrangler 本身不识别 `ARCAEA_CONFIG`。
 
 `env.ARCHIVE`、`env.DB`、`env.JOBS` 是 Cloudflare 注入的资源绑定对象，不是 `.env` 字符串配置。线上代码直接使用 `ARCHIVE.get()/put()`、`DB.prepare()`、`JOBS.send()`，运行时不需要 Cloudflare API Token。
 
@@ -129,13 +173,13 @@ pnpm exec wrangler secret put ADMIN_TOKEN --config wrangler.production.jsonc
 
 ## GitHub 自动构建与部署
 
-GitHub Actions 在推送 `main` 或提交目标为 `main` 的 PR 时自动运行 `pnpm run ci:build`，依次执行类型检查、测试和 Astro 构建；不需要生产凭据。工作流位于 `.github/workflows/ci.yml`，仅请求仓库读取权限，不负责上线。
+GitHub Actions 在推送 `main` 或提交目标为 `main` 的 PR 时，通过 `jdx/mise-action` 安装锁定的工具，缓存 pnpm store，再执行 `mise run ci`，依次安装依赖、检查类型、运行测试和 Astro 构建；不需要生产凭据。工作流位于 `.github/workflows/ci.yml`，仅请求仓库读取权限，不负责上线。
 
 Cloudflare 自动上线使用 Workers Builds：在 Worker → Settings → Builds 中连接自己的 GitHub 仓库，生产分支选择 `main`，根目录为 `/`，构建命令为 `pnpm run ci:build`，部署命令为 `pnpm run ci:deploy`。部署阶段会按所选配置重新构建，避免误用其他目标的旧产物，然后更新 D1 数据库结构并发布。数据库结构更新必须兼容部署前仍在运行的版本。
 
 如果仓库保留通用模板，而实际生产配置未入库，需要在 Workers Builds 的**构建环境加密变量**中设置 `ARCAEA_CONFIG_JSON`，值为完整私有配置的 JSON 内容。工具会将其写入已忽略的 `wrangler.production.jsonc` 并选择该文件，供构建与部署共同使用。不要把此变量设置为 Worker 运行时 Secret，也不要同时设置 `ARCAEA_CONFIG`。普通 GitHub Actions 检查继续使用通用模板。
 
-如果部署的是按钮生成、已写入自己资源绑定的仓库，则直接使用其 `wrangler.jsonc` 即可，无需上述私有配置变量。构建器使用 `.node-version` 指定的 Node.js 24，pnpm 版本由 `package.json` 的 `packageManager` 字段固定为 12。生产口令保留在 Worker Secrets。
+如果部署的是按钮生成、已写入自己资源绑定的仓库，则直接使用其 `wrangler.jsonc` 即可，无需上述私有配置变量。Cloudflare Builds 保留平台原生的 pnpm 构建入口，使用 `.node-version` 指定的 Node.js 和 `package.json` 的 `packageManager` 指定的 pnpm，与本地 mise 共用版本声明。生产口令保留在 Worker Secrets。
 
 ## API
 
