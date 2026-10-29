@@ -19,3 +19,7 @@ dist/
 .migration/
 /docs/
 /wrangler.production.jsonc
+
+/mise.local.toml
+/mise.*.local.toml
+/mise.local.lock
