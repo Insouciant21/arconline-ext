@@ -67,30 +67,41 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
   const retryFailedJob = () => job && submit(`/api/jobs/${job.id}/retry`, job.kind);
   React.useEffect(() => {
     if (!jobId) return;
-    let disposed = false, timer: ReturnType<typeof setTimeout>;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    let finishedJob: JobView | null = null;
     async function poll() {
       try {
-        const [jobResponse, dashboardResponse] = await Promise.all([
-          fetch(`/api/jobs/${jobId}`, { cache: "no-store" }), fetch("/api/dashboard", { cache: "no-store" }),
-        ]);
-        if (jobResponse.status === 401) { window.location.assign("/login"); return; }
-        if (!jobResponse.ok || !dashboardResponse.ok) throw new Error("暂时无法读取任务状态，正在重试…");
-        const currentJob = await jobResponse.json() as JobView;
-        const dashboard = await dashboardResponse.json() as DashboardPayload;
-        if (disposed) return;
-        setJob(currentJob); setData(dashboard); setError(null);
+        let currentJob = finishedJob;
+        if (!currentJob) {
+          const response = await fetch(`/api/jobs/${jobId}`, { cache: "no-store", signal: controller.signal });
+          if (response.status === 401) { window.location.assign("/login"); return; }
+          if (!response.ok) throw new Error("暂时无法读取任务状态，正在重试…");
+          currentJob = await response.json() as JobView;
+          if (controller.signal.aborted) return;
+          setJob(currentJob);
+        }
         if (currentJob.status === "succeeded" || currentJob.status === "failed") {
+          // The B50 and history only need refreshing after the job finishes.
+          // If that refresh fails, retry it without downloading the finished job again.
+          finishedJob = currentJob;
+          const response = await fetch("/api/dashboard", { cache: "no-store", signal: controller.signal });
+          if (response.status === 401) { window.location.assign("/login"); return; }
+          if (!response.ok) throw new Error("暂时无法刷新概览，正在重试…");
+          const dashboard = await response.json() as DashboardPayload;
+          if (controller.signal.aborted) return;
+          setData(currentJob.result?.snapshot ? { ...dashboard, latest: currentJob.result.snapshot } : dashboard);
           setJobId(null); setAction("idle");
-          if (currentJob.result?.snapshot) setData({ ...dashboard, latest: currentJob.result.snapshot });
           setMessage(currentJob.result?.message || null); setError(currentJob.error || null); setLogOpen(true);
           return;
         }
+        setError(null);
         setAction(currentJob.kind === "sync" ? "syncing" : currentJob.kind === "retry" ? "retrying" : "importing");
-      } catch (caught) { if (!disposed) setError(caught instanceof Error ? caught.message : "正在重试读取任务状态…"); }
-      if (!disposed) timer = setTimeout(poll, 2000);
+      } catch (caught) { if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : "正在重试读取任务状态…"); }
+      if (!controller.signal.aborted) timer = setTimeout(poll, 2000);
     }
     void poll();
-    return () => { disposed = true; clearTimeout(timer); };
+    return () => { controller.abort(); clearTimeout(timer); };
   }, [jobId]);
   const top10 = latest?.best50.slice(0, 10).reduce((sum, score) => sum + score.rating, 0) || 0;
   const rest40 = latest?.best50.slice(10).reduce((sum, score) => sum + score.rating, 0) || 0;

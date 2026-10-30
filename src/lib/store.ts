@@ -32,7 +32,21 @@ export class Store {
     return results.map(({ mediaStatus, ...summary }) => ({ ...summary, ...(mediaStatus ? { mediaStatus } : {}) }));
   }
   async enrich(snapshots: B50Snapshot[]) {
-    const aliases = await this.cache<number>("alias");
+    // Only legacy BYD/INS rows need an alias lookup. Current API responses
+    // already carry it; other difficulties don't use aliases.
+    const keys = [...new Set(snapshots.flatMap(snapshot => snapshot.best50
+      .filter(score => score.difficulty === 3 && score.difficultyAlias == null)
+      .map(score => `${score.songId}:${score.difficulty}`)))];
+    const statements: D1PreparedStatement[] = [];
+    for (let index = 0; index < keys.length; index += 100) {
+      const batch = keys.slice(index, index + 100);
+      statements.push(this.sql(`SELECT key,body FROM cache WHERE kind='alias' AND key IN (${batch.map(() => "?").join(",")})`, ...batch));
+    }
+    const aliases: Record<string, number> = {};
+    if (statements.length) {
+      const batches = await this.env.DB.batch<{ key: string; body: string }>(statements);
+      for (const { results } of batches) for (const row of results) aliases[row.key] = JSON.parse(row.body) as number;
+    }
     return snapshots.map(snapshot => ({ ...snapshot,
       ...(snapshot.potentialImageKey ? { potentialImageUrl: publicAssetUrl(this.env, snapshot.potentialImageKey) } : {}),
       user: { ...snapshot.user, ...(snapshot.user.avatarImageKey ? { avatarImageUrl: publicAssetUrl(this.env, snapshot.user.avatarImageKey) } : {}) },

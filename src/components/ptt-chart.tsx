@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent } from "react";
 import type { PotentialHistoryPoint } from "@/lib/types";
 
 const height = 236;
 const padding = { top: 20, right: 16, bottom: 20, left: 48 };
 
-export function PttChart({ points }: { points: PotentialHistoryPoint[] }) {
+export const PttChart = memo(function PttChart({ points }: { points: PotentialHistoryPoint[] }) {
   const id = useId();
   const canvasRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(820);
@@ -333,4 +333,4 @@ export function PttChart({ points }: { points: PotentialHistoryPoint[] }) {
       ) : null}
     </div>
   );
-}
+});
