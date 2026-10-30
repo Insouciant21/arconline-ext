@@ -3,6 +3,9 @@ import type { JobKind, JobView } from "./types";
 import { Store } from "./store";
 import { AppError } from "./errors";
 import { runStep, type SyncState } from "./sync";
+import { ArcaeaClient } from "./arcaea-client";
+
+const CONTINUATION_BUDGET_MS = 120_000;
 
 export interface JobRow {
   id: string; kind: JobKind; trigger: "manual" | "daily" | "cron";
@@ -56,12 +59,13 @@ export async function retryJob(env: Env, id: string) {
   await dispatch(env).catch(error => console.error("[outbox] deferred", error));
   return { jobId: id, status: "queued" };
 }
-async function dispatch(env: Env) {
+async function dispatch(env: Env, jobId?: string, delaySeconds?: number) {
   const store = new Store(env);
   const { results } = await store.sql(`SELECT o.job_id,o.step FROM outbox o JOIN jobs j ON j.id=o.job_id AND j.step=o.step
-    WHERE j.status='queued' AND (o.sent_at IS NULL OR o.sent_at<?) ORDER BY j.created_at LIMIT 50`, Date.now() - 300_000).all<{ job_id: string; step: number }>();
+    WHERE j.status='queued' AND (o.sent_at IS NULL OR o.sent_at<?) ${jobId ? "AND j.id=?" : ""}
+    ORDER BY j.created_at LIMIT 50`, Date.now() - 300_000, ...(jobId ? [jobId] : [])).all<{ job_id: string; step: number }>();
   for (const row of results) {
-    await env.JOBS.send({ jobId: row.job_id, step: row.step });
+    await env.JOBS.send({ jobId: row.job_id, step: row.step }, delaySeconds ? { delaySeconds } : undefined);
     await store.sql("UPDATE outbox SET sent_at=? WHERE job_id=? AND step=?", Date.now(), row.job_id, row.step).run();
   }
 }
@@ -112,21 +116,45 @@ export async function consume(env: Env, batch: MessageBatch<JobMessage>) {
     if (!row) {
       const current = await store.sql("SELECT status,step FROM jobs WHERE id=?", message.body.jobId).first<JobRow>();
       if (current?.step === message.body.step && (current.status === "queued" || current.status === "running")) message.retry({ delaySeconds: 60 });
-      else message.ack();
+      else {
+        if (current?.status === "queued") await dispatch(env, message.body.jobId).catch(error => console.error("[outbox] deferred", error));
+        message.ack();
+      }
       continue;
     }
     try {
-      const next = await runStep(env, row, async state => {
-        const written = await store.sql("UPDATE jobs SET state=?,updated_at=? WHERE id=? AND lease_token=? AND status='running'", JSON.stringify(state), new Date().toISOString(), row.id, lease).run();
+      const deadline = Date.now() + CONTINUATION_BUDGET_MS;
+      let client: Promise<ArcaeaClient> | undefined;
+      const execution = {
+        // The authenticated session lives only in this invocation, never in D1
+        // or a queue message. A resumed invocation logs in again if needed.
+        getClient: () => client ??= ArcaeaClient.login(env),
+        shouldYield: () => Date.now() >= deadline,
+      };
+      while (true) {
+        const next = await runStep(env, row, async state => {
+          const body = JSON.stringify(state);
+          const written = await store.sql("UPDATE jobs SET state=?,updated_at=? WHERE id=? AND lease_token=? AND status='running'", body, new Date().toISOString(), row.id, lease).run();
+          if (!written.meta.changes) throw new Error("Task lease lost");
+          row.state = body;
+        }, execution);
+        const continuing = !next.result && !execution.shouldYield();
+        const status = next.result ? "succeeded" : continuing ? "running" : "queued";
+        const state = JSON.stringify(next.state), result = next.result ? JSON.stringify(next.result) : null;
+        const [written] = await env.DB.batch([
+          store.sql(`UPDATE jobs SET status=?,stage=?,state=?,result=?,error=NULL,step=step+1,attempts=?,lease_token=?,lease_until=?,updated_at=?
+            WHERE id=? AND step=? AND lease_token=? AND status='running'`, status, next.stage, state, result,
+            continuing ? 1 : 0, continuing ? lease : null, continuing ? row.lease_until : null, new Date().toISOString(), row.id, row.step, lease),
+          store.sql(`DELETE FROM outbox WHERE job_id=? AND step=?
+            AND NOT EXISTS(SELECT 1 FROM jobs WHERE id=? AND step=?)`, row.id, row.step, row.id, row.step),
+          // Keep a durable continuation even while running, so recovery after
+          // a process restart can dispatch the latest persisted step.
+          store.sql("INSERT OR IGNORE INTO outbox(job_id,step) SELECT id,step FROM jobs WHERE id=? AND status IN ('queued','running')", row.id),
+        ]);
         if (!written.meta.changes) throw new Error("Task lease lost");
-        row.state = JSON.stringify(state);
-      });
-      await env.DB.batch([
-        store.sql(`UPDATE jobs SET status=?,stage=?,state=?,result=?,error=NULL,step=step+1,attempts=0,lease_token=NULL,lease_until=NULL,updated_at=?
-          WHERE id=? AND step=? AND lease_token=?`, next.result ? "succeeded" : "queued", next.stage, JSON.stringify(next.state), next.result ? JSON.stringify(next.result) : null, new Date().toISOString(), row.id, row.step, lease),
-        store.sql("DELETE FROM outbox WHERE job_id=? AND step=?", row.id, row.step),
-        store.sql("INSERT OR IGNORE INTO outbox(job_id,step) SELECT id,step FROM jobs WHERE id=? AND status='queued'", row.id),
-      ]);
+        Object.assign(row, { status, stage: next.stage, state, result, step: row.step + 1, attempts: continuing ? 1 : 0 });
+        if (!continuing) break;
+      }
       message.ack();
       await dispatch(env).catch(error => console.error("[outbox] deferred", error));
     } catch (error) {
@@ -136,8 +164,13 @@ export async function consume(env: Env, batch: MessageBatch<JobMessage>) {
         await failJob(env, row, reason);
         message.ack();
       } else {
-        await store.sql("UPDATE jobs SET status='queued',lease_token=NULL,lease_until=NULL,error=?,updated_at=? WHERE id=? AND lease_token=?", reason, new Date().toISOString(), row.id, lease).run();
-        message.retry({ delaySeconds: 30 * row.attempts });
+        const written = await store.sql("UPDATE jobs SET status='queued',lease_token=NULL,lease_until=NULL,error=?,updated_at=? WHERE id=? AND lease_token=?", reason, new Date().toISOString(), row.id, lease).run();
+        if (written.meta.changes && row.step !== message.body.step) {
+          // Continuing in-process advanced the durable step. Retrying the old
+          // queue body would be stale, so dispatch the current outbox instead.
+          try { await dispatch(env, row.id, 30 * row.attempts); message.ack(); }
+          catch (error) { console.error("[outbox] deferred", error); message.retry({ delaySeconds: 30 * row.attempts }); }
+        } else message.retry({ delaySeconds: 30 * row.attempts });
       }
     }
   }

@@ -4,6 +4,8 @@ import type { Env } from "./environment";
 import { publicAssetUrl, putSnapshot } from "./r2";
 import type { B50Snapshot, Best50Score, LogEntry, PotentialHistoryPoint, SnapshotSummary } from "./types";
 
+export interface CacheWrite { kind: string; key: string; value: unknown; }
+
 export class Store {
   constructor(readonly env: Env) {}
   sql(query: string, ...values: (string | number | null)[]) { return this.env.DB.prepare(query).bind(...values); }
@@ -66,6 +68,7 @@ export class Store {
       this.sql(`INSERT INTO ptt_points(id,local_date,fetched_at,potential,snapshot_id) VALUES(?,?,?,?,?)
         ON CONFLICT(id) DO UPDATE SET local_date=excluded.local_date,fetched_at=excluded.fetched_at,potential=excluded.potential`,
         `snapshot:${snapshot.id}`, date, snapshot.fetchedAt, snapshot.potential, snapshot.id),
+      this.sql("DELETE FROM cache WHERE kind='export' AND key='fingerprint'"),
     ]);
   }
   async backup(snapshot: B50Snapshot) {
@@ -80,23 +83,44 @@ export class Store {
     return results.map(({ date, potential, snapshotId, fetchedAt, source }) => ({ date, potential, snapshotId, fetchedAt, ...(source === "lowiro" ? { source } : {}) }));
   }
   async mergeOfficial(points: Array<{ timePlayed: number; potential: number }>) {
-    for (let i = 0; i < points.length; i += 80) {
-      await this.env.DB.batch(points.slice(i, i + 80).map(point => {
-        const fetchedAt = new Date(point.timePlayed).toISOString();
+    const { results } = await this.sql("SELECT id,potential FROM ptt_points WHERE source='lowiro'").all<{ id: string; potential: number }>();
+    const existing = new Map(results.map(point => [point.id, point.potential]));
+    const incoming = new Map(points.map(point => {
+      const fetchedAt = new Date(point.timePlayed).toISOString();
+      return [`lowiro:${fetchedAt}`, { ...point, fetchedAt }] as const;
+    }));
+    const changed = [...incoming].filter(([id, point]) => existing.get(id) !== point.potential);
+    const timezone = getConfig(this.env).timezone;
+    for (let i = 0; i < changed.length; i += 80) {
+      await this.env.DB.batch([...changed.slice(i, i + 80).map(([id, point]) => {
         return this.sql(`INSERT INTO ptt_points(id,local_date,fetched_at,potential,snapshot_id,source) VALUES(?,?,?,?,?,'lowiro')
-          ON CONFLICT(id) DO UPDATE SET potential=excluded.potential`, `lowiro:${fetchedAt}`,
-          getLocalDate(fetchedAt, getConfig(this.env).timezone), fetchedAt, point.potential, "");
-      }));
+          ON CONFLICT(id) DO UPDATE SET potential=excluded.potential`, id,
+          getLocalDate(point.fetchedAt, timezone), point.fetchedAt, point.potential, "");
+      }), this.sql("DELETE FROM cache WHERE kind='export' AND key='fingerprint'")]);
     }
-    const total = await this.sql("SELECT COUNT(*) AS n FROM ptt_points WHERE source='lowiro'").first<number>("n");
-    return { received: points.length, total: total || 0 };
+    return { received: points.length, total: existing.size + [...incoming.keys()].filter(id => !existing.has(id)).length };
   }
-  async cache<T>(kind: string) {
-    const { results } = await this.sql("SELECT key,body FROM cache WHERE kind=?", kind).all<{ key: string; body: string }>();
+  async cache<T>(kind: string, keys?: string[]) {
+    let results: Array<{ key: string; body: string }>;
+    if (keys) {
+      const unique = [...new Set(keys)], statements: D1PreparedStatement[] = [];
+      // The cache kind occupies one of D1's 100 bound parameters.
+      for (let index = 0; index < unique.length; index += 99) {
+        const batch = unique.slice(index, index + 99);
+        statements.push(this.sql(`SELECT key,body FROM cache WHERE kind=? AND key IN (${batch.map(() => "?").join(",")})`, kind, ...batch));
+      }
+      results = statements.length ? (await this.env.DB.batch<{ key: string; body: string }>(statements)).flatMap(batch => batch.results) : [];
+    } else {
+      ({ results } = await this.sql("SELECT key,body FROM cache WHERE kind=?", kind).all<{ key: string; body: string }>());
+    }
     return Object.fromEntries(results.map(row => [row.key, JSON.parse(row.body) as T])) as Record<string, T>;
   }
   async putCache(kind: string, key: string, value: unknown) {
     await this.sql("INSERT INTO cache(kind,key,body) VALUES(?,?,?) ON CONFLICT(kind,key) DO UPDATE SET body=excluded.body", kind, key, JSON.stringify(value)).run();
+  }
+  async putCaches(entries: CacheWrite[]) {
+    if (entries.length) await this.env.DB.batch(entries.map(({ kind, key, value }) =>
+      this.sql("INSERT INTO cache(kind,key,body) VALUES(?,?,?) ON CONFLICT(kind,key) DO UPDATE SET body=excluded.body", kind, key, JSON.stringify(value))));
   }
   async aliases(scores: Best50Score[]) {
     const statements = scores.filter(score => score.difficultyAlias !== undefined).map(score =>
@@ -117,25 +141,27 @@ export class Store {
     return results.map(row => JSON.parse(row.body) as LogEntry);
   }
   async exportArchive() {
-    // Rewriting the full archive is O(all data); skip it when no snapshot or
-    // PTT point changed since the last export (rowid maxima move on writes).
+    // Counts detect new rows; writes also invalidate the fingerprint when an
+    // existing snapshot or official PTT point changes in place.
     const [snapshots, points] = await Promise.all([
       this.sql("SELECT COUNT(*) AS n, MAX(rowid) AS m FROM snapshots").first<{ n: number; m: number }>(),
       this.sql("SELECT COUNT(*) AS n, MAX(rowid) AS m FROM ptt_points").first<{ n: number; m: number }>(),
     ]);
     const fingerprint = `${snapshots?.n ?? 0}:${snapshots?.m ?? 0}:${points?.n ?? 0}:${points?.m ?? 0}`;
     if ((await this.cache<string>("export")).fingerprint === fingerprint) return;
-    const all = (await this.snapshots()).reverse();
-    const history = await this.history();
+    const [snapshotsToExport, history] = await Promise.all([this.snapshots(), this.history()]);
+    const all = snapshotsToExport.reverse();
     const files: Record<string, string> = {
       "b50-history.json": JSON.stringify(all, null, 2),
       "ptt-history.json": JSON.stringify(history, null, 2),
       "b50-history.csv": buildB50HistoryCsv(all),
       "ptt-history.csv": buildPttHistoryCsv(history),
     };
-    for (const [name, body] of Object.entries(files)) await this.env.ARCHIVE.put(`exports/${name}`, body + "\n", {
+    const writes = await Promise.allSettled(Object.entries(files).map(([name, body]) => this.env.ARCHIVE.put(`exports/${name}`, body + "\n", {
       httpMetadata: { contentType: name.endsWith("csv") ? "text/csv; charset=utf-8" : "application/json; charset=utf-8", cacheControl: "no-cache" },
-    });
+    })));
+    const failure = writes.find(write => write.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
     await this.putCache("export", "fingerprint", fingerprint);
   }
 }
