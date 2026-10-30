@@ -2,6 +2,7 @@ import { AppError } from "./errors";
 import type { Env } from "./environment";
 
 const MOBILE_CHROME_UA = "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36";
+const localDateFormatters = new Map<string, Intl.DateTimeFormat>();
 export function getConfig(env: Env) {
   return {
     arcaeaApiBase: env.ARCAEA_API_BASE?.trim() || "https://webapi.lowiro.com",
@@ -19,5 +20,10 @@ export function getArcaeaCredentials(env: Env) {
   return { username, password };
 }
 export function getLocalDate(value: string | number | Date, timezone = "Asia/Shanghai") {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
+  let formatter = localDateFormatters.get(timezone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" });
+    localDateFormatters.set(timezone, formatter);
+  }
+  return formatter.format(new Date(value));
 }

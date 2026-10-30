@@ -7,15 +7,21 @@ import type { JobRow } from "./jobs";
 import { importOfficialHistory } from "./official-history";
 import { calculateWeightedPotential, formatPotential } from "./potential";
 import { publicAssetUrl, putAsset } from "./r2";
-import { Store } from "./store";
+import { Store, type CacheWrite } from "./store";
 import type { B50Snapshot, CharacterImageCacheEntry, ChartImageCacheEntry, JobView } from "./types";
 
 type MediaItem = { kind: "potential" | "chart" | "character"; key: string; bg?: string; icon?: string; characterId?: number; songId?: string; done?: boolean; cached?: boolean };
 export interface SyncState { snapshotId?: string; media?: MediaItem[]; preview?: B50Snapshot; duplicateOf?: string; historyMessage?: string; }
 type StepResult = { stage: string; state: SyncState; result?: NonNullable<JobView["result"]> };
+export interface SyncExecution {
+  getClient: () => Promise<ArcaeaClient>;
+  shouldYield: () => boolean;
+}
 
-export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncState) => Promise<void>): Promise<StepResult> {
+export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncState) => Promise<void>, execution?: SyncExecution): Promise<StepResult> {
   const store = new Store(env), state = JSON.parse(job.state) as SyncState;
+  let client: Promise<ArcaeaClient> | undefined;
+  const getClient = execution?.getClient ?? (() => client ??= ArcaeaClient.login(env));
   if (job.stage === "fetch") {
     if (job.kind === "retry") {
       const snapshot = state.snapshotId ? await store.snapshot(state.snapshotId) : await store.latest();
@@ -27,9 +33,8 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
       await checkpoint(state);
       return { stage: "media", state };
     }
-    const client = await ArcaeaClient.login(env);
     if (job.kind === "import") {
-      const imported = await importOfficialHistory(store, client);
+      const imported = await importOfficialHistory(store, await getClient());
       state.historyMessage = `已同步官网历史 PTT，共保存 ${imported.total} 个原始数据点。`;
       return { stage: "archive", state };
     }
@@ -41,9 +46,8 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
       await checkpoint(state);
       return { stage: "history", state };
     }
-    const remote = await client.fetchB50Snapshot();
+    const [remote, previous] = await Promise.all([getClient().then(client => client.fetchB50Snapshot()), store.latest()]);
     await store.aliases(remote.best50);
-    const previous = await store.latest();
     const snapshot: B50Snapshot = {
       id: snapshotId, fetchedAt: new Date().toISOString(), trigger: job.trigger,
       potential: formatPotential(remote.user.rating), weightedPotential: formatPotential(calculateWeightedPotential(remote.best50.map(score => score.rating))),
@@ -71,9 +75,7 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
   if (job.stage === "history") {
     // History failure must not discard a successfully fetched B50.
     try {
-      const client = await ArcaeaClient.login(env);
-      const scores = state.preview?.best50 || (state.snapshotId ? (await store.snapshot(state.snapshotId))?.best50 : undefined);
-      await importOfficialHistory(store, client, scores);
+      await importOfficialHistory(store, await getClient(), { refreshAliases: false });
     } catch (error) {
       await store.log({ scope: "b50", level: "warning", action: "history-import-failed", message: `官网历史导入失败，保留已有数据：${error instanceof Error ? error.message : "未知错误"}` });
     }
@@ -85,30 +87,37 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
     if (!snapshot) throw new AppError("任务快照不存在。", 404, "SNAPSHOT_MISSING");
     snapshot.mediaStatus = "processing"; delete snapshot.mediaError;
     const items = state.media || (state.media = mediaItems(snapshot));
-    // 25 per invocation: a full B50 (~51 items) finishes in three deliveries
-    // instead of seven, so media logs in to Lowiro at most three times. Worst
-    // case stays well inside the queue consumer's time budget.
-    const pending = items.filter(item => !item.done).slice(0, 25);
-    const client = pending.length ? await ArcaeaClient.login(env) : null;
-    // Checkpoint after each pair: a redelivery can HEAD deterministic R2 keys
-    // and recover an upload that finished before its database checkpoint.
-    for (let i = 0; i < pending.length; i += 2) {
-      const pair = pending.slice(i, i + 2);
-      const results = await Promise.allSettled(pair.map(async item => {
-        const exists = await env.ARCHIVE.head(item.key);
-        if (!exists) {
-          const image = item.kind === "potential" ? await client!.getOnlineImage() : item.kind === "chart" ? await client!.getChartImage(item.bg!) : await client!.getCharacterIconImage(item.icon!);
-          await putAsset(env, item.key, image.body, image.contentType, { kind: item.kind, snapshotId: snapshot.id });
-        }
-        item.cached = Boolean(exists);
-        await applyMedia(store, snapshot, item);
-        item.done = true;
-      }));
+    // Keep each step small. The consumer can continue immediately with the
+    // same session, or yield after a checkpoint when its time budget expires.
+    const pending = items.filter(item => !item.done).slice(0, 24);
+    // Two buffered images at a time stay within the Worker's memory budget.
+    // Batch cache writes and checkpoint every four successes. If interrupted,
+    // deterministic R2 keys recover uploads ahead of the last checkpoint.
+    for (let i = 0; i < pending.length; i += 4) {
+      const writes: CacheWrite[] = [];
+      let failure: PromiseRejectedResult | undefined;
+      for (let offset = i; offset < Math.min(i + 4, pending.length); offset += 2) {
+        const results = await Promise.allSettled(pending.slice(offset, Math.min(offset + 2, i + 4)).map(async item => {
+          const exists = await env.ARCHIVE.head(item.key);
+          if (!exists) {
+            const client = await getClient();
+            const image = item.kind === "potential" ? await client.getOnlineImage() : item.kind === "chart" ? await client.getChartImage(item.bg!) : await client.getCharacterIconImage(item.icon!);
+            await putAsset(env, item.key, image.body, image.contentType, { kind: item.kind, snapshotId: snapshot.id });
+          }
+          item.cached = Boolean(exists);
+          const write = applyMedia(store, snapshot, item);
+          if (write) writes.push(write);
+          item.done = true;
+        }));
+        failure = results.find(result => result.status === "rejected");
+        if (failure) break;
+      }
+      await store.putCaches(writes);
       snapshot.imageStats = mediaStats(items);
       await store.writeSnapshot(snapshot);
       await checkpoint(state);
-      const failure = results.find(result => result.status === "rejected");
-      if (failure?.status === "rejected") throw failure.reason;
+      if (failure) throw failure.reason;
+      if (execution?.shouldYield()) break;
     }
     return { stage: items.some(item => !item.done) ? "media" : "archive", state };
   }
@@ -143,24 +152,29 @@ function mediaStats(items: MediaItem[]) {
   const charts = items.filter(item => item.kind === "chart");
   return { requested: charts.length, uploaded: charts.filter(item => item.done && !item.cached).length, cached: charts.filter(item => item.done && item.cached).length, failed: 0, failures: [] };
 }
-async function applyMedia(store: Store, snapshot: B50Snapshot, item: MediaItem) {
+function applyMedia(store: Store, snapshot: B50Snapshot, item: MediaItem): CacheWrite | undefined {
   const url = publicAssetUrl(store.env, item.key), updatedAt = new Date().toISOString();
   if (item.kind === "potential") { snapshot.potentialImageKey = item.key; snapshot.potentialImageUrl = url; }
   if (item.kind === "chart") {
     for (const score of snapshot.best50.filter(score => score.bg === item.bg)) { score.imageKey = item.key; score.imageUrl = url; }
-    await store.putCache("chart", item.bg!, { songId: item.songId, bg: item.bg, imageKey: item.key, imageUrl: url, updatedAt });
+    return { kind: "chart", key: item.bg!, value: { songId: item.songId, bg: item.bg, imageKey: item.key, imageUrl: url, updatedAt } };
   }
   if (item.kind === "character") {
     snapshot.user.avatarImageKey = item.key; snapshot.user.avatarImageUrl = url;
-    await store.putCache("character", `${item.characterId}:${item.icon}`, { characterId: item.characterId, icon: item.icon, imageKey: item.key, imageUrl: url, updatedAt });
+    return { kind: "character", key: `${item.characterId}:${item.icon}`, value: { characterId: item.characterId, icon: item.icon, imageKey: item.key, imageUrl: url, updatedAt } };
   }
 }
 async function enrichCached(store: Store, snapshot: B50Snapshot) {
-  const [charts, characters] = await Promise.all([store.cache<ChartImageCacheEntry>("chart"), store.cache<CharacterImageCacheEntry>("character")]);
+  const chartKeys = snapshot.best50.map(score => score.bg).filter((bg): bg is string => Boolean(bg));
+  const characterKey = `${snapshot.user.characterId}:${snapshot.user.characterIcon}`;
+  const [charts, characters] = await Promise.all([
+    store.cache<ChartImageCacheEntry>("chart", chartKeys),
+    store.cache<CharacterImageCacheEntry>("character", snapshot.user.characterIcon && snapshot.user.characterId !== undefined ? [characterKey] : []),
+  ]);
   for (const score of snapshot.best50) {
-    const entry = Object.values(charts).find(item => item.bg === score.bg && item.imageKey);
+    const entry = score.bg ? charts[score.bg] : undefined;
     if (score.bg && entry?.imageKey) { score.imageKey = entry.imageKey; score.imageUrl = publicAssetUrl(store.env, entry.imageKey); }
   }
-  const character = Object.values(characters).find(item => item.characterId === snapshot.user.characterId && item.icon === snapshot.user.characterIcon && item.imageKey);
+  const character = characters[characterKey];
   if (character?.imageKey) { snapshot.user.avatarImageKey = character.imageKey; snapshot.user.avatarImageUrl = publicAssetUrl(store.env, character.imageKey); }
 }

@@ -52,9 +52,7 @@ export class ArcaeaClient {
       throw new AppError("Arcaea 登录成功但没有返回会话 Cookie。", 502, "ARCAEA_SESSION_MISSING");
     }
 
-    const client = new ArcaeaClient({ cookies }, config);
-    await client.getUser();
-    return client;
+    return new ArcaeaClient({ cookies }, config);
   }
 
   async getUser(): Promise<StoredUser> {

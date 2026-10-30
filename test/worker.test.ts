@@ -18,6 +18,13 @@ function fixture(id = "2026-10-14-first", potential = 12.5): B50Snapshot {
     user: { rating: potential, name: "Test" }, imageStats: { requested: 1, uploaded: 0, failed: 0, failures: [] }, mediaStatus: "complete",
     best50: Array.from({length:50}, (_,i) => ({ songId:`song${i}`, difficulty:2, modifier:0, rating:13-i/100, score:9900000,perfectCount:100,nearCount:0,missCount:0,clearType:1,title:{en:`Song ${i}`},artist:"Test",timePlayed:1700000000000,bg:"a".repeat(32) })) };
 }
+function uncachedFixture() {
+  const snapshot = fixture();
+  snapshot.best50.forEach((score, index) => { score.bg = index.toString(16).padStart(32, "0"); });
+  snapshot.user.characterId = 7;
+  snapshot.user.characterIcon = "c".repeat(32);
+  return snapshot;
+}
 function request(path: string, method = "GET", cookie = "", body?: unknown, origin = "https://arc.example") {
   return new Request(`https://arc.example${path}`, { method, headers: { origin, cookie, "content-type":"application/json" }, ...(body ? { body:JSON.stringify(body) } : {}) });
 }
@@ -76,7 +83,7 @@ it("uses Workers-compatible fetch options for Lowiro login and images", async ()
   const client = await ArcaeaClient.login(env);
   const image = await client.getChartImage("a".repeat(32));
   expect(image.contentType).toBe("image/jpeg"); expect(image.body.byteLength).toBe(5);
-  expect(fetch).toHaveBeenCalledTimes(3);
+  expect(fetch).toHaveBeenCalledTimes(2);
 });
 
 it("reports the upstream login status without exposing credentials or its response body", async () => {
@@ -84,6 +91,26 @@ it("reports the upstream login status without exposing credentials or its respon
   await expect(ArcaeaClient.login(env)).rejects.toMatchObject({
     code: "ARCAEA_LOGIN_FAILED", message: "Arcaea 登录失败（HTTP 400，错误码 104），请检查账号配置或账号状态。",
   });
+});
+
+it("fetches the profile and B50 together without an extra profile request during login", async () => {
+  let resolveUser!: (response: Response) => void, resolveScores!: (response: Response) => void;
+  const user = new Promise<Response>(resolve => { resolveUser = resolve; });
+  const scores = new Promise<Response>(resolve => { resolveScores = resolve; });
+  const upstream = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const path = new URL(new Request(input, init).url).pathname;
+    if (path === "/auth/login") return Response.json({ isLoggedIn: true }, { headers: { "set-cookie": "session=private; Secure" } });
+    if (path === "/webapi/user/me") return user;
+    if (path === "/webapi/score/rating/me") return scores;
+    throw new Error("Unexpected upstream request");
+  });
+  const client = await ArcaeaClient.login(env);
+  expect(upstream).toHaveBeenCalledTimes(1);
+  const pending = client.fetchB50Snapshot();
+  await vi.waitFor(() => expect(upstream).toHaveBeenCalledTimes(3));
+  resolveUser(Response.json({ value: { rating: 12500, name: "Test" } }));
+  resolveScores(Response.json({ value: { best_rated_scores: [{ ...songScoreFixture(), rating: 13 }] } }));
+  await expect(pending).resolves.toMatchObject({ user: { rating: 12.5 }, best50: [{ songId: "aegleseeker" }] });
 });
 
 describe("security headers",()=>{
@@ -230,7 +257,7 @@ describe("single-song queries", () => {
     expect(payload.scores[0]).not.toHaveProperty("rating");
     expect(payload.scores[0]).not.toHaveProperty("user_id");
     expect(JSON.stringify(payload)).not.toContain("private-session");
-    expect(upstream).toHaveBeenCalledTimes(3);
+    expect(upstream).toHaveBeenCalledTimes(2);
     const scoreRequest = upstream.mock.calls.find(([input]) => String(input).includes("/score/song/me/all"))!;
     const params = new URL(String(scoreRequest[0])).searchParams;
     expect(Object.fromEntries(params)).toEqual({ term: "Dread & Area", difficulty: "3", page: "2", sort: "score_below_max" });
@@ -292,6 +319,36 @@ describe("single-song queries", () => {
 });
 
 describe("D1 archives",()=>{
+  it("reads only requested media cache keys within D1's parameter limit", async () => {
+    const store = new Store(env);
+    await store.putCaches([
+      { kind: "chart", key: "cache0", value: "first" },
+      { kind: "chart", key: "cache149", value: "last" },
+      { kind: "chart", key: "unrelated", value: "ignored" },
+      { kind: "character", key: "cache0", value: "wrong kind" },
+    ]);
+    const sql = vi.spyOn(store, "sql");
+    const keys = Array.from({ length: 150 }, (_, index) => `cache${index}`);
+    expect(await store.cache<string>("chart", [...keys, ...keys])).toEqual({ cache0: "first", cache149: "last" });
+    expect(sql.mock.calls).toHaveLength(2);
+    for (const [, ...values] of sql.mock.calls) expect(values.length).toBeLessThanOrEqual(100);
+    sql.mockClear();
+    expect(await store.cache("character", [])).toEqual({});
+    expect(sql).not.toHaveBeenCalled();
+  });
+  it("does not rewrite unchanged official history and resolves repeated timestamps", async () => {
+    const store = new Store(env);
+    const points = Array.from({ length: 200 }, (_, index) => ({ timePlayed: Date.parse("2026-10-01T00:00:00Z") + index * 3_600_000, potential: 12 + index / 1000 }));
+    expect(await store.mergeOfficial(points)).toEqual({ received: 200, total: 200 });
+    const batch = vi.spyOn(env.DB, "batch");
+    expect(await store.mergeOfficial([...points, points[0]])).toEqual({ received: 201, total: 200 });
+    expect(batch).not.toHaveBeenCalled();
+    const corrected = { ...points[0], potential: 13 };
+    expect(await store.mergeOfficial([corrected, points[0]])).toEqual({ received: 2, total: 200 });
+    expect(batch).not.toHaveBeenCalled();
+    await store.mergeOfficial([points[0], corrected]);
+    expect((await store.history())[0].potential).toBe(13);
+  });
   it("enriches current snapshots without querying the alias table", async () => {
     const store = new Store(env), snapshot = fixture();
     snapshot.best50[0].difficulty = 3;
@@ -355,6 +412,37 @@ describe("D1 archives",()=>{
     await store.mergeOfficial([{timePlayed:Date.parse('2026-10-16T10:00:00Z'),potential:13}]);
     await store.exportArchive();expect(exportWrites()).toBeGreaterThan(writes);
   });
+  it("refreshes exports after correcting existing snapshots or official PTT points", async () => {
+    const store = new Store(env), snapshot = fixture();
+    const point = { timePlayed: Date.parse("2026-10-16T10:00:00Z"), potential: 13 };
+    await store.writeSnapshot(snapshot);await store.mergeOfficial([point]);await store.exportArchive();
+    snapshot.best50[0].imageKey = "charts/updated.jpg";
+    await store.writeSnapshot(snapshot);await store.exportArchive();
+    const scores = await (await env.ARCHIVE.get("exports/b50-history.json"))!.json<B50Snapshot[]>();
+    expect(scores[0].best50[0].imageUrl).toBe("/api/media/charts/updated.jpg");
+    await store.mergeOfficial([{ ...point, potential: 13.1 }]);await store.exportArchive();
+    const history = await (await env.ARCHIVE.get("exports/ptt-history.json"))!.json<Array<{ potential: number }>>();
+    expect(history.at(-1)?.potential).toBe(13.1);
+  });
+  it("settles all archive writes before retrying a failed export", async () => {
+    const store = new Store(env);await store.writeSnapshot(fixture());
+    const original = env.ARCHIVE.put.bind(env.ARCHIVE), failure = new Error("R2 temporarily unavailable");
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const put = vi.spyOn(env.ARCHIVE, "put").mockImplementation(async (...args) => {
+      if (args[0] === "exports/b50-history.json") throw failure;
+      if (args[0] === "exports/ptt-history.json") await gate;
+      return original(...args);
+    });
+    let settled = false;
+    const exporting = store.exportArchive().then(() => { settled = true; return null; }, error => { settled = true; return error; });
+    try {
+      await vi.waitFor(() => expect(put).toHaveBeenCalledTimes(4));
+      expect(settled).toBe(false);
+    } finally { release(); }
+    expect(await exporting).toBe(failure);
+    expect((await store.cache("export")).fingerprint).toBeUndefined();
+  });
   it("retains the B50 formula and comparisons",()=>{
     expect(calculateWeightedPotential(Array(50).fill(12))).toBe(12);
     const before=fixture(),after=structuredClone(before);after.best50[0].score+=100;
@@ -362,6 +450,95 @@ describe("D1 archives",()=>{
   });
 });
 describe("durable queue pipeline",()=>{
+  it("finishes an uncached B50 in one delivery and reuses one upstream session", async () => {
+    const client = mockLowiro(uncachedFixture());
+    const writes = vi.spyOn(Store.prototype, "writeSnapshot"), caches = vi.spyOn(Store.prototype, "cache");
+    const job = await enqueue(env, "sync"), message = sent.shift()!;
+    const delivered = await deliver(message), result = await getJob(env, job.jobId);
+    expect(result.status).toBe("succeeded");expect(delivered.ack).toHaveBeenCalledOnce();
+    expect(sent).toHaveLength(0);
+    expect(ArcaeaClient.login).toHaveBeenCalledTimes(1);
+    expect(client.fetchB50Snapshot).toHaveBeenCalledTimes(1);
+    expect(client.getBest50).not.toHaveBeenCalled();
+    expect(client.getOnlineImage).toHaveBeenCalledTimes(1);
+    expect(client.getChartImage).toHaveBeenCalledTimes(50);
+    expect(client.getCharacterIconImage).toHaveBeenCalledTimes(1);
+    expect(writes.mock.calls.length).toBeLessThan(20);
+    for (const [kind, keys] of caches.mock.calls.filter(([kind]) => kind === "chart" || kind === "character")) {
+      expect(keys).toBeDefined();expect(keys!.length).toBe(kind === "chart" ? 50 : 1);
+    }
+    expect(result.result?.snapshot?.imageStats).toMatchObject({ requested: 50, uploaded: 50, cached: 0 });
+    expect(result.result?.snapshot?.user.avatarImageUrl).toBe(`/api/media/characters/${"c".repeat(32)}.png`);
+    expect(await env.ARCHIVE.head(`snapshots/${result.result!.snapshot!.id}.json`)).not.toBeNull();
+  });
+  it("yields within its time budget and resumes the durable step after an expired lease", async () => {
+    const client = mockLowiro(uncachedFixture()), now = Date.now;
+    let elapsed = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => now() + elapsed);
+    client.getChartImage.mockImplementation(async () => { elapsed = 121_000;return { body: new Uint8Array([1]).buffer, contentType: "image/jpeg" }; });
+    const job = await enqueue(env, "sync"), original = sent.shift()!;
+    await deliver(original);
+    const yielded = await getJob(env, job.jobId);
+    expect(yielded.status).toBe("queued");expect(yielded.stage).toBe("media");
+    expect(yielded.progress.completed).toBeGreaterThan(0);expect(yielded.progress.completed).toBeLessThan(yielded.progress.total);
+    const step = await new Store(env).sql("SELECT step FROM jobs WHERE id=?", job.jobId).first<number>("step");
+    expect(sent[0].step).toBe(step);expect(step).toBeGreaterThan(original.step);
+    expect((await deliver(original)).ack).toHaveBeenCalledOnce();
+    await env.DB.prepare("UPDATE jobs SET status='running',lease_token='abandoned',lease_until=0,attempts=1 WHERE id=?").bind(job.jobId).run();
+    sent.length = 0;elapsed = 0;
+    client.getChartImage.mockImplementation(async () => ({ body: new Uint8Array([1]).buffer, contentType: "image/jpeg" }));
+    await recover(env);expect(sent[0].step).toBe(step);
+    await deliver(sent.shift()!);
+    expect((await getJob(env, job.jobId)).status).toBe("succeeded");
+    expect(ArcaeaClient.login).toHaveBeenCalledTimes(2);
+    expect(client.fetchB50Snapshot).toHaveBeenCalledTimes(1);
+    expect(client.getChartImage).toHaveBeenCalledTimes(50);expect(client.getOnlineImage).toHaveBeenCalledTimes(1);
+  });
+  it("recovers uploaded media from R2 without logging in upstream", async () => {
+    const store = new Store(env), snapshot = fixture();
+    await store.writeSnapshot(snapshot);
+    await env.ARCHIVE.put(`potential/${snapshot.id}.image`, "potential");
+    await env.ARCHIVE.put(`charts/${snapshot.best50[0].bg}.jpg`, "chart");
+    const login = vi.spyOn(ArcaeaClient, "login").mockRejectedValue(new Error("Upstream must not be needed"));
+    const job = await enqueue(env, "retry", "manual", null, { snapshotId: snapshot.id });
+    await deliver(sent.shift()!);
+    expect((await getJob(env, job.jobId)).status).toBe("succeeded");expect(login).not.toHaveBeenCalled();
+    expect((await store.latest())?.imageStats).toMatchObject({ cached: 1, uploaded: 0 });
+  });
+  it("keeps a fetched B50 when official history fails", async () => {
+    const client = mockLowiro();client.getPotentialHistory.mockRejectedValue(new Error("History temporarily unavailable"));
+    const job = await enqueue(env, "sync");await deliver(sent.shift()!);
+    expect((await getJob(env, job.jobId)).status).toBe("succeeded");
+    expect(ArcaeaClient.login).toHaveBeenCalledTimes(1);
+    expect(await new Store(env).logs()).toEqual(expect.arrayContaining([expect.objectContaining({ action: "history-import-failed", level: "warning" })]));
+  });
+  it("recovers a failed continuation dispatch using a redelivered older message", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = mockLowiro();client.getChartImage.mockRejectedValueOnce(new Error("Temporary image failure"));
+    const job = await enqueue(env, "sync"), original = sent.shift()!;
+    (env.JOBS.send as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("Queue temporarily unavailable"));
+    const first = await deliver(original);
+    expect(first.retry).toHaveBeenCalledWith({ delaySeconds: 30 });
+    expect((await getJob(env, job.jobId)).status).toBe("queued");expect(sent).toHaveLength(0);
+    expect((await deliver(original)).ack).toHaveBeenCalledOnce();
+    expect(sent[0].step).toBeGreaterThan(original.step);
+    await deliver(sent.shift()!);
+    expect((await getJob(env, job.jobId)).status).toBe("succeeded");
+    expect(client.fetchB50Snapshot).toHaveBeenCalledTimes(1);expect(client.getOnlineImage).toHaveBeenCalledTimes(1);
+  });
+  it("does not remove another lease owner's recovery outbox", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = mockLowiro(), job = await enqueue(env, "sync");
+    client.getPotentialHistory.mockImplementation(async () => {
+      await env.DB.prepare("UPDATE jobs SET lease_token='replacement' WHERE id=?").bind(job.jobId).run();
+      return [];
+    });
+    await deliver(sent.shift()!);
+    const row = await new Store(env).sql("SELECT status,step,lease_token FROM jobs WHERE id=?", job.jobId).first<JobRow>();
+    expect(row).toMatchObject({ status: "running", lease_token: "replacement" });
+    expect(await new Store(env).sql("SELECT step FROM outbox WHERE job_id=?", job.jobId).first<number>("step")).toBe(row!.step);
+    expect(client.getOnlineImage).not.toHaveBeenCalled();
+  });
   it("deduplicates concurrent submits and cron dates, ignores repeated deliveries",async()=>{
     const [a,b]=await Promise.all([enqueue(env,'sync'),enqueue(env,'sync')]);expect(a.jobId).toBe(b.jobId);
     const [c,d]=await Promise.all([enqueue(env,'sync','daily','daily:2026-10-14'),enqueue(env,'sync','daily','daily:2026-10-14')]);expect(c.jobId).toBe(d.jobId);
@@ -397,8 +574,16 @@ describe("durable queue pipeline",()=>{
     const errorLog=vi.spyOn(console,'error').mockImplementation(()=>{});
     const client=mockLowiro();client.getChartImage.mockRejectedValue(failure);
     const job=await enqueue(env,'sync');
-    await deliver(sent.shift()!);await deliver(sent.shift()!);const media=sent.shift()!;
-    for(let i=0;i<4;i++)await deliver(media);
+    let media=sent.shift()!;
+    for(let i=0;i<4;i++){
+      await deliver(media);
+      if(sent.length){
+        const continuation=sent.shift()!;
+        expect(continuation.step).toBeGreaterThan(media.step);
+        expect((env.JOBS.send as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[1]).toEqual({delaySeconds:30});
+        media=continuation;
+      }
+    }
     expect(errorLog.mock.calls).toEqual(Array.from({length:4},()=>['[job] step failed',job.jobId,'media',failure]));
     errorLog.mockRestore();
     expect((await getJob(env,job.jobId)).status).toBe('failed');expect(client.getOnlineImage).toHaveBeenCalledTimes(1);
