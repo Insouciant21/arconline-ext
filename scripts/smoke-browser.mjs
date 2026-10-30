@@ -22,6 +22,7 @@ try {
  const loginMark=await page.locator('.auth-topbar .brand-mark').evaluate(element=>{const style=getComputedStyle(element);return{box:element.getBoundingClientRect().width,paths:element.querySelectorAll('path').length,circles:element.querySelectorAll('circle').length,background:style.backgroundColor,clipPath:style.clipPath}});
  if(loginMark.box<30||loginMark.paths<4||loginMark.circles<2||loginMark.background!=='rgba(0, 0, 0, 0)'||loginMark.clipPath!=='none')throw new Error(`Brand mark failed to render: ${JSON.stringify(loginMark)}`);
  await signIn();
+ await page.locator('astro-island:not([ssr])').waitFor();
  await page.locator('.score-grid .score-card').first().waitFor({timeout:30000});
  const cards=await page.locator('.score-grid .score-card').count();if(cards!==50)throw new Error(`Expected 50 scores, got ${cards}`);
  const footerText=await page.locator('.footer').innerText();
@@ -53,6 +54,68 @@ try {
  const sidebarTop=await page.locator('.topbar').evaluate(element=>element.getBoundingClientRect().top);
  if(Math.abs(sidebarTop)>1)throw new Error(`Sidebar did not remain sticky while scrolling (top ${sidebarTop}px)`);
  await page.evaluate(()=>scrollTo(0,0));
+
+ const baselineResponse=await context.request.get(origin+'/api/dashboard');
+ expect(baselineResponse.ok()).toBe(true);
+ const baseline=await baselineResponse.json();
+ expect(baseline.activeJob).toBeNull();
+ await page.getByRole('tab',{name:'1W',exact:true}).click();
+ await expect(page.getByRole('tab',{name:'1W',exact:true})).toHaveAttribute('aria-selected','true');
+ await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+ // Changing the chart or job progress must not reformat 50 unchanged cards.
+ await page.evaluate(times=>{
+  const playedAt=new Set(times), original=Intl.DateTimeFormat.prototype.formatToParts;
+  window.__scoreFormattingCount=0;
+  window.__restoreScoreFormatting=()=>{Intl.DateTimeFormat.prototype.formatToParts=original};
+  Intl.DateTimeFormat.prototype.formatToParts=function(value){
+   if(playedAt.has(Number(value)))window.__scoreFormattingCount++;
+   return original.call(this,value);
+  };
+ },baseline.latest.best50.map(score=>score.timePlayed).filter(time=>time>0));
+ await page.getByRole('tab',{name:'5Y',exact:true}).click();
+ await expect(page.getByRole('tab',{name:'5Y',exact:true})).toHaveAttribute('aria-selected','true');
+ if(await page.getByRole('button',{name:'放大',exact:true}).isEnabled()){
+  await page.getByRole('button',{name:'放大',exact:true}).click();
+  await expect(page.getByRole('button',{name:'查看全部',exact:true})).toBeEnabled();
+  await page.getByRole('button',{name:'查看全部',exact:true}).click();
+  await expect(page.getByRole('button',{name:'查看全部',exact:true})).toBeDisabled();
+ }
+ await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+ expect(await page.evaluate(()=>window.__scoreFormattingCount)).toBe(0);
+
+ const jobId='00000000-0000-4000-8000-000000000001';
+ const syncUrl=origin+'/api/sync', jobUrl=origin+`/api/jobs/${jobId}`, dashboardUrl=origin+'/api/dashboard';
+ const refreshed=structuredClone(baseline);
+ refreshed.latest.best50[0].score++;
+ let jobReads=0, dashboardReads=0, terminalJobReads=0, finishJob=false;
+ // These routes keep the smoke test from submitting a real synchronization job.
+ await page.route(syncUrl,route=>route.fulfill({status:202,json:{jobId,status:'queued'}}));
+ await page.route(jobUrl,route=>{
+  jobReads++;
+  if(finishJob)terminalJobReads++;
+  return route.fulfill({json:{id:jobId,kind:'sync',status:finishJob?'succeeded':'running',stage:finishJob?'done':'media',progress:{completed:finishJob?51:jobReads,total:51},createdAt:'',updatedAt:'',...(finishJob?{result:{snapshot:refreshed.latest,message:'浏览器同步测试完成'}}:{})}});
+ });
+ await page.route(dashboardUrl,route=>{
+  dashboardReads++;
+  return dashboardReads===1
+   ?route.fulfill({status:503,json:{error:'Temporary dashboard failure'}})
+   :route.fulfill({json:refreshed});
+ });
+ await page.getByRole('button',{name:'获取 B50 & 潜力图',exact:true}).click();
+ await expect.poll(()=>jobReads,{timeout:10000}).toBeGreaterThanOrEqual(2);
+ expect(dashboardReads).toBe(0);
+ expect(await page.evaluate(()=>window.__scoreFormattingCount)).toBe(0);
+ finishJob=true;
+ await expect(page.locator('.job-status')).toContainText('暂时无法刷新概览',{timeout:10000});
+ await expect(page.getByRole('dialog')).toContainText('浏览器同步测试完成',{timeout:10000});
+ expect(dashboardReads).toBe(2);
+ expect(terminalJobReads).toBe(1);
+ await page.getByRole('button',{name:'关闭',exact:true}).click();
+ await expect(page.locator('.score-number strong').first()).toHaveText(new Intl.NumberFormat('en-US').format(refreshed.latest.best50[0].score));
+ expect(await page.evaluate(()=>window.__scoreFormattingCount)).toBeGreaterThan(0);
+ await page.evaluate(()=>window.__restoreScoreFormatting());
+ await page.unroute(syncUrl);await page.unroute(jobUrl);await page.unroute(dashboardUrl);
+
  await page.getByRole('link',{name:'历史',exact:true}).click();await page.waitForURL('**/history');
  await page.locator('astro-island:not([ssr])').waitFor();
  const historyKickerGap=await page.locator('.history-intro .section-kicker').evaluate(kicker=>{const title=kicker.parentElement.querySelector('h1');return title.getBoundingClientRect().top-kicker.getBoundingClientRect().bottom});
@@ -75,5 +138,5 @@ try {
  await page.locator('.score-grid .score-card').first().waitFor();await page.screenshot({path:`${artifactDirectory}/dashboard-mobile.png`,fullPage:true});
  const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth);if(overflow)throw new Error('Mobile horizontal overflow');
  if(errors.length)throw new Error(errors.join('\n'));
- console.log(JSON.stringify({origin,cards,login:true,historyComparison:true,logout:true,mobile:true,pageErrors:errors.length}));
+ console.log(JSON.stringify({origin,cards,login:true,historyComparison:true,logout:true,mobile:true,cardMemoization:true,polling:{jobReads,dashboardReads,terminalJobReads},pageErrors:errors.length}));
 } finally {await browser.close();}

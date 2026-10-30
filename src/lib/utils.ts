@@ -2,19 +2,39 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import type { Best50Score } from "./types";
 
+const numberFormatters = new Map<number, Intl.NumberFormat>();
+const scoreFormatter = new Intl.NumberFormat("en-US");
+const playedAtFormatter = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Asia/Shanghai",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+const joinDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Shanghai",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
 export function formatNumber(value: number, maximumFractionDigits = 3) {
-  return new Intl.NumberFormat("zh-CN", {
-    maximumFractionDigits,
-    minimumFractionDigits: 0,
-  }).format(value);
+  let formatter = numberFormatters.get(maximumFractionDigits);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat("zh-CN", { maximumFractionDigits, minimumFractionDigits: 0 });
+    numberFormatters.set(maximumFractionDigits, formatter);
+  }
+  return formatter.format(value);
 }
 
 export function formatScore(value: number) {
-  return new Intl.NumberFormat("en-US").format(value);
+  return scoreFormatter.format(value);
 }
 
 export function shinyPureCount(score: Pick<Best50Score, "score" | "perfectCount" | "nearCount" | "missCount">) {
@@ -48,17 +68,8 @@ export function chartConstantFromScore(score: { score: number; rating: number; c
 export function formatRelativeDate(value: string | number) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  const formatter = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
-  const parts = Object.fromEntries(formatter.formatToParts(date).map(({ type, value }) => [type, value]));
-  const currentYear = formatter.formatToParts(new Date()).find((part) => part.type === "year")?.value;
+  const parts = Object.fromEntries(playedAtFormatter.formatToParts(date).map(({ type, value }) => [type, value]));
+  const currentYear = playedAtFormatter.formatToParts(new Date()).find((part) => part.type === "year")?.value;
   const year = parts.year === currentYear ? "" : `${parts.year}/`;
   return `${year}${parts.month}/${parts.day} ${parts.hour}:${parts.minute}`;
 }
@@ -66,12 +77,7 @@ export function formatRelativeDate(value: string | number) {
 export function formatJoinDate(value: number) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
+  const parts = joinDateFormatter.formatToParts(date);
   const year = parts.find((part) => part.type === "year")?.value;
   const month = parts.find((part) => part.type === "month")?.value;
   const day = parts.find((part) => part.type === "day")?.value;

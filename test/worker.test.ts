@@ -292,6 +292,37 @@ describe("single-song queries", () => {
 });
 
 describe("D1 archives",()=>{
+  it("enriches current snapshots without querying the alias table", async () => {
+    const store = new Store(env), snapshot = fixture();
+    snapshot.best50[0].difficulty = 3;
+    snapshot.best50[0].difficultyAlias = 1;
+    snapshot.best50[0].imageKey = "charts/current.jpg";
+    const prepare = vi.spyOn(env.DB, "prepare");
+    const [enriched] = await store.enrich([snapshot]);
+    expect(enriched.best50[0]).toMatchObject({ difficultyAlias: 1, imageUrl: "/api/media/charts/current.jpg" });
+    expect(enriched.best50[1].difficultyAlias).toBeUndefined();
+    expect(prepare).not.toHaveBeenCalled();
+  });
+  it("loads only missing legacy aliases and stays within D1's parameter limit", async () => {
+    const store = new Store(env);
+    const snapshots = Array.from({ length: 3 }, (_, page) => {
+      const snapshot = fixture(`legacy-${page}`);
+      snapshot.best50.forEach((score, index) => { score.songId = `legacy${page * 50 + index}`; score.difficulty = 3; });
+      return snapshot;
+    });
+    Object.assign(snapshots[0].best50[0], { difficultyAlias: null });
+    await store.putCache("alias", "legacy0:3", 1);
+    await store.putCache("alias", "legacy149:3", 1);
+    await store.putCache("alias", "unrelated:3", 1);
+    const sql = vi.spyOn(store, "sql");
+    const enriched = await store.enrich(snapshots);
+    expect(enriched[0].best50[0].difficultyAlias).toBe(1);
+    expect(enriched[2].best50[49].difficultyAlias).toBe(1);
+    expect(enriched[1].best50[0].difficultyAlias).toBeUndefined();
+    expect(sql.mock.calls.length).toBeLessThanOrEqual(2);
+    expect(sql.mock.calls.flatMap(([, ...keys]) => keys)).toHaveLength(150);
+    for (const [, ...keys] of sql.mock.calls) expect(keys.length).toBeLessThanOrEqual(100);
+  });
   it("keeps daily maximum and latest chronologically, writes stable snapshots",async()=>{
     const store=new Store(env),first=fixture();await store.writeSnapshot(first);
     const later={...fixture('later',12.1),fetchedAt:'2026-10-14T11:00:00.000Z'};await store.writeSnapshot(later);await store.writeSnapshot(first);

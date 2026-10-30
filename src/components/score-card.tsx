@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { Best50Score, SongScore } from "@/lib/types";
 import {
   clearTypeCode,
@@ -12,7 +13,7 @@ import {
   shinyPureCount,
 } from "@/lib/utils";
 
-export function ScoreCard({ score, rank }: { score: Best50Score | SongScore; rank?: number }) {
+export const ScoreCard = memo(function ScoreCard({ score, rank }: { score: Best50Score | SongScore; rank?: number }) {
   const title = score.title.zh || score.title.en || score.title.ja || score.songId;
   const playedAt = score.timePlayed > 0 ? formatRelativeDate(score.timePlayed) : "—";
   const chartConstant = "rating" in score ? chartConstantFromScore(score) : null;
@@ -75,7 +76,7 @@ export function ScoreCard({ score, rank }: { score: Best50Score | SongScore; ran
       </div> : null}
     </article>
   );
-}
+});
 
 function DifficultyDiamond({ difficulty, alias }: { difficulty: number; alias?: number }) {
   return (
