@@ -450,6 +450,114 @@ describe("D1 archives",()=>{
   });
 });
 describe("durable queue pipeline",()=>{
+  it("reuses previous covers and avatar when scores change, downloading only the new cover", async () => {
+    const previous = uncachedFixture(), store = new Store(env);
+    previous.best50.forEach(score => { score.imageKey = `charts/${score.bg}.jpg`; });
+    previous.user.avatarImageKey = `characters/${previous.user.characterIcon}.png`;
+    previous.potentialImageKey = `potential/${previous.id}.image`;
+    await store.writeSnapshot(previous);
+    const remote = structuredClone(previous);
+    for (const score of remote.best50) { delete score.imageKey;delete score.imageUrl; }
+    delete remote.user.avatarImageKey;delete remote.user.avatarImageUrl;
+    remote.best50[0].score += 100;
+    remote.best50[1].bg = "f".repeat(32);
+    const client = mockLowiro(remote), head = vi.spyOn(env.ARCHIVE, "head"), cache = vi.spyOn(Store.prototype, "cache");
+    const job = await enqueue(env, "sync");await deliver(sent.shift()!);
+    const result = (await getJob(env, job.jobId)).result!;
+    expect(result.recorded).toBe(true);expect(result.snapshot?.mediaStatus).toBe("complete");
+    expect(result.snapshot?.best50[0].score).toBe(remote.best50[0].score);
+    expect(client.getChartImage).toHaveBeenCalledExactlyOnceWith("f".repeat(32));
+    expect(client.getOnlineImage).toHaveBeenCalledTimes(1);expect(client.getCharacterIconImage).not.toHaveBeenCalled();
+    expect(head.mock.calls.map(([key]) => key).filter(key => key.startsWith("charts/"))).toEqual([`charts/${"f".repeat(32)}.jpg`]);
+    expect(cache.mock.calls.filter(([kind]) => kind === "chart").map(([, keys]) => keys)).toEqual([["f".repeat(32)]]);
+    expect(result.snapshot?.imageStats).toMatchObject({ requested: 50, uploaded: 1, cached: 49 });
+    expect(result.snapshot?.user.avatarImageKey).toBe(previous.user.avatarImageKey);
+    expect(result.snapshot?.potentialImageKey).not.toBe(previous.potentialImageKey);
+  });
+  it("processes changed B50 media while official history is still loading", async () => {
+    const client = mockLowiro();
+    let releaseHistory!: () => void, releaseImage!: () => void;
+    const history = new Promise<void>(resolve => { releaseHistory = resolve; });
+    const image = new Promise<void>(resolve => { releaseImage = resolve; });
+    client.getPotentialHistory.mockImplementation(async () => { await history;return []; });
+    client.getOnlineImage.mockImplementation(async () => { await image;return { body: new Uint8Array([1]).buffer, contentType: "image/png" }; });
+    const job = await enqueue(env, "sync"), running = deliver(sent.shift()!);
+    try {
+      await vi.waitFor(() => { expect(client.getPotentialHistory).toHaveBeenCalledTimes(1);expect(client.getOnlineImage).toHaveBeenCalledTimes(1); });
+      expect((await getJob(env, job.jobId)).status).toBe("running");
+    } finally { releaseHistory();releaseImage(); }
+    await running;
+    expect((await getJob(env, job.jobId)).status).toBe("succeeded");
+  });
+  it("keeps the second image slot working while potential-image generation is blocked", async () => {
+    const client = mockLowiro(uncachedFixture());
+    let release!: () => void, active = 0, maximum = 0;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    client.getOnlineImage.mockImplementation(async () => {
+      maximum = Math.max(maximum, ++active);
+      try { await gate;return { body: new Uint8Array([1]).buffer, contentType: "image/png" }; }
+      finally { active--; }
+    });
+    client.getChartImage.mockImplementation(async () => {
+      maximum = Math.max(maximum, ++active);
+      try { await Promise.resolve();return { body: new Uint8Array([1]).buffer, contentType: "image/jpeg" }; }
+      finally { active--; }
+    });
+    const job = await enqueue(env, "sync"), running = deliver(sent.shift()!);
+    try { await vi.waitFor(() => expect(client.getChartImage.mock.calls.length).toBeGreaterThanOrEqual(3)); }
+    finally { release(); }
+    await running;
+    expect(maximum).toBe(2);expect(client.getChartImage).toHaveBeenCalledTimes(50);
+    expect((await getJob(env, job.jobId)).status).toBe("succeeded");
+  });
+  it("does not mark unpersisted uploads done when history finishes during a failed snapshot write", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = mockLowiro(uncachedFixture()), original = Store.prototype.writeSnapshot;
+    let fail = true;
+    vi.spyOn(Store.prototype, "writeSnapshot").mockImplementation(async function(snapshot) {
+      if (fail && snapshot.imageStats.uploaded > 0) { fail = false;throw new Error("Temporary snapshot write failure"); }
+      return original.call(this, snapshot);
+    });
+    const job = await enqueue(env, "sync");await deliver(sent.shift()!);
+    expect((await getJob(env, job.jobId)).status).toBe("queued");
+    const state = JSON.parse((await new Store(env).sql("SELECT state FROM jobs WHERE id=?", job.jobId).first<string>("state"))!);
+    expect(state.historyPending).toBe(false);expect(state.media.every((item: { done?: boolean }) => !item.done)).toBe(true);
+    await deliver(sent.shift()!);
+    const result = await getJob(env, job.jobId);
+    expect(result.status).toBe("succeeded");expect(result.result?.snapshot?.potentialImageKey).toBeTruthy();
+    expect(result.result?.snapshot?.best50.every(score => score.imageKey)).toBe(true);
+    expect(client.getPotentialHistory).toHaveBeenCalledTimes(1);expect(client.getOnlineImage).toHaveBeenCalledTimes(1);expect(client.getChartImage).toHaveBeenCalledTimes(50);
+  });
+  it("starts exports alongside snapshot backup and settles both before retrying", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mockLowiro();
+    const original = Store.prototype.backup;
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    vi.spyOn(Store.prototype, "backup").mockImplementation(async function(snapshot) { await gate;return original.call(this, snapshot); });
+    const exporting = vi.spyOn(Store.prototype, "exportArchive").mockRejectedValueOnce(new Error("Temporary export failure"));
+    const job = await enqueue(env, "sync"), running = deliver(sent.shift()!);
+    try {
+      await vi.waitFor(() => expect(exporting).toHaveBeenCalledTimes(1));
+      expect((await getJob(env, job.jobId)).status).toBe("running");
+    } finally { release(); }
+    await running;
+    expect((await getJob(env, job.jobId)).status).toBe("queued");
+    await deliver(sent.shift()!);
+    const result = await getJob(env, job.jobId);
+    expect(result.status).toBe("succeeded");expect(result.result?.recorded).toBe(true);
+    expect(await env.ARCHIVE.head(`snapshots/${result.result!.snapshot!.id}.json`)).not.toBeNull();
+    expect(await env.ARCHIVE.head("exports/b50-history.json")).not.toBeNull();
+  });
+  it("resumes a previously queued history stage without fetching B50 again", async () => {
+    const snapshot = fixture(), store = new Store(env), client = mockLowiro();
+    await store.writeSnapshot(snapshot);
+    const job = await enqueue(env, "sync");
+    await store.sql("UPDATE jobs SET stage='history',state=? WHERE id=?", JSON.stringify({ snapshotId: snapshot.id }), job.jobId).run();
+    await deliver(sent.shift()!);
+    expect((await getJob(env, job.jobId)).status).toBe("succeeded");
+    expect(client.fetchB50Snapshot).not.toHaveBeenCalled();expect(client.getPotentialHistory).toHaveBeenCalledTimes(1);
+  });
   it("finishes an uncached B50 in one delivery and reuses one upstream session", async () => {
     const client = mockLowiro(uncachedFixture());
     const writes = vi.spyOn(Store.prototype, "writeSnapshot"), caches = vi.spyOn(Store.prototype, "cache");
@@ -534,10 +642,10 @@ describe("durable queue pipeline",()=>{
       return [];
     });
     await deliver(sent.shift()!);
-    const row = await new Store(env).sql("SELECT status,step,lease_token FROM jobs WHERE id=?", job.jobId).first<JobRow>();
+    const row = await new Store(env).sql("SELECT status,stage,step,lease_token FROM jobs WHERE id=?", job.jobId).first<JobRow>();
     expect(row).toMatchObject({ status: "running", lease_token: "replacement" });
     expect(await new Store(env).sql("SELECT step FROM outbox WHERE job_id=?", job.jobId).first<number>("step")).toBe(row!.step);
-    expect(client.getOnlineImage).not.toHaveBeenCalled();
+    expect(row!.stage).toBe("media");
   });
   it("deduplicates concurrent submits and cron dates, ignores repeated deliveries",async()=>{
     const [a,b]=await Promise.all([enqueue(env,'sync'),enqueue(env,'sync')]);expect(a.jobId).toBe(b.jobId);
