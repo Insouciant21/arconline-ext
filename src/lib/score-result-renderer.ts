@@ -29,9 +29,11 @@ import difficultyEtr from "@/assets/score-result/difficulty-etr.webp";
 import difficultyByd from "@/assets/score-result/difficulty-byd.webp";
 import difficultyIns from "@/assets/score-result/difficulty-ins.webp";
 import textFont from "@/assets/score-result/result-text.woff2?url";
+import textSemiboldFont from "@/assets/score-result/result-text-semibold.woff2?url";
 import scoreFont from "@/assets/score-result/result-score.woff2?url";
 import cjkFont from "@/assets/score-result/result-cjk.woff2?url";
 import numberFont from "@/assets/score-result/result-number.woff2?url";
+import numberMediumFont from "@/assets/score-result/result-number-medium.woff2?url";
 import type { ImageMetadata } from "astro";
 import type { ScoreExportProfile, SongScore } from "./types";
 import { clearTypeLabel, difficultyCode, difficultyLabel } from "./utils";
@@ -43,8 +45,10 @@ const difficulties = { PST: difficultyPst, PRS: difficultyPrs, FTR: difficultyFt
 // Vite emits URLs for every available partner; only the selected pair is fetched.
 const partners = import.meta.glob<ImageMetadata>("../assets/score-result/characters/*.webp", { eager: true, import: "default" });
 const textFamily = '"Arcaea Result Text", "Arcaea Result CJK", sans-serif';
+const semiboldFamily = '"Arcaea Result Text Semibold", "Arcaea Result CJK", sans-serif';
 const scoreFamily = '"Arcaea Result Score", "Arcaea Result Text", sans-serif';
 const numberFamily = '"Arcaea Result Number", "Arcaea Result CJK", sans-serif';
+const mediumNumberFamily = '"Arcaea Result Number Medium", "Arcaea Result CJK", sans-serif';
 const images = new Map<string, Promise<HTMLImageElement>>();
 // The reference is the game's wide viewport. Its 1280px design area remains
 // centered inside a 1562x720 scene, rather than stretching the result columns.
@@ -93,7 +97,9 @@ function deadline<T>(operation: Promise<T>, message: string): Promise<T> {
 function loadFonts() {
   if (!fonts) {
     fonts = deadline(Promise.all([
-      ["Arcaea Result Text", textFont], ["Arcaea Result Score", scoreFont], ["Arcaea Result CJK", cjkFont], ["Arcaea Result Number", numberFont],
+      ["Arcaea Result Text", textFont], ["Arcaea Result Text Semibold", textSemiboldFont],
+      ["Arcaea Result Score", scoreFont], ["Arcaea Result CJK", cjkFont],
+      ["Arcaea Result Number", numberFont], ["Arcaea Result Number Medium", numberMediumFont],
     ].map(async ([name, url]) => {
       const face = await new FontFace(name, `url("${url}")`).load();
       document.fonts.add(face);
@@ -129,7 +135,11 @@ function loadImage(src: string, artwork = false) {
   return operation;
 }
 
-function text(ctx: CanvasRenderingContext2D, value: string, x: number, y: number, size: number, color: string, options: { align?: CanvasTextAlign; width?: number; family?: string; minSize?: number } = {}) {
+function text(ctx: CanvasRenderingContext2D, value: string, x: number, y: number, size: number, color: string, options: {
+  align?: CanvasTextAlign; width?: number; family?: string; minSize?: number;
+  outline?: string; outlineWidth?: number; shadow?: { color: string; x: number; y: number };
+} = {}) {
+  ctx.save();
   const family = options.family || textFamily;
   ctx.font = `${size}px ${family}`;
   // Keep long and multilingual names inside the title band without stretching glyphs.
@@ -142,7 +152,19 @@ function text(ctx: CanvasRenderingContext2D, value: string, x: number, y: number
   ctx.fillStyle = color;
   ctx.textAlign = options.align || "left";
   ctx.textBaseline = "middle";
+  if (options.outline) {
+    ctx.strokeStyle = options.outline;
+    ctx.lineWidth = options.outlineWidth ?? 1;
+    ctx.lineJoin = "round";
+    ctx.strokeText(value, x, y);
+  }
+  if (options.shadow) {
+    ctx.shadowColor = options.shadow.color;
+    ctx.shadowOffsetX = options.shadow.x;
+    ctx.shadowOffsetY = options.shadow.y;
+  }
   ctx.fillText(value, x, y);
+  ctx.restore();
 }
 
 function contain(ctx: CanvasRenderingContext2D, image: HTMLImageElement, x: number, y: number, width: number, height: number) {
@@ -220,11 +242,11 @@ export async function renderScoreResult(score: SongScore) {
   ctx.save();
   ctx.translate(scene.contentLeft, 0);
 
-  text(ctx, result.title, 640, 103.5, 48, "#fff", { align: "center", width: 1100, minSize: 24 });
-  text(ctx, score.artist || "Unknown artist", 640, 147.6, 28, "#fff", { align: "center", width: 1060 });
+  text(ctx, result.title, 640, 103.5, 48, "#fff", { align: "center", width: 1100, minSize: 24, shadow: { color: "#141414", x: 3, y: 3 } });
+  text(ctx, score.artist || "Unknown artist", 640, 147.6, 28, "#fff", { align: "center", width: 1060, shadow: { color: "#141414", x: 3, y: 3 } });
   ctx.drawImage(difficulty, 4.7, 191, 260.7, 73.3);
-  text(ctx, result.level ?? code, 54, 228, result.level ? 34 : 20, "#fff", { align: "center", family: numberFamily });
-  text(ctx, difficultyLabel(score.difficulty, score.difficultyAlias).toUpperCase(), 96, 216, 20, "#55435d", { width: 170 });
+  text(ctx, result.level ?? code, 54, 228, result.level ? 34 : 20, "#fff", { align: "center", family: mediumNumberFamily, outline: code === "BYD" ? "#b5122e" : "#654c78", outlineWidth: 2 });
+  text(ctx, difficultyLabel(score.difficulty, score.difficultyAlias).toUpperCase(), 96, 216, 20, "#6f5270", { width: 170, family: semiboldFamily, outline: "#fff" });
 
   if (artwork) {
     const scale = Math.max(375 / artwork.naturalWidth, 375 / artwork.naturalHeight);
@@ -253,7 +275,7 @@ export async function renderScoreResult(score: SongScore) {
   ctx.save();
   ctx.translate(scene.contentLeft, 0);
   ctx.drawImage(resultPanel(panel), 437.86, 251.13, panel.naturalWidth * 2 / 3, panel.naturalHeight * 2 / 3);
-  text(ctx, result.scoreText, 640, 313, 60, "#fff", { align: "center", family: scoreFamily });
+  text(ctx, result.scoreText, 640, 313, 60, "#fff", { align: "center", family: scoreFamily, shadow: { color: "#252525", x: 3, y: 3 } });
   text(ctx, "定数", 469, 376, 16, "#e4daed");
   text(ctx, result.constant?.toFixed(1) ?? "—", 567, 376, 23, "#fff", { align: "right", family: numberFamily });
   text(ctx, "单曲 PTT", 615, 376, 16, "#e4daed");
@@ -267,12 +289,11 @@ export async function renderScoreResult(score: SongScore) {
   ].forEach(({ image, label, value }, index) => {
     const y = 519 + index * 37;
     ctx.drawImage(image, 540, y, 166, 30);
-    ctx.save();
-    ctx.shadowColor = "#48364f"; ctx.shadowBlur = 2; ctx.shadowOffsetY = 1;
-    text(ctx, label, 629, y + 15, 20, "#fff", { align: "right" });
-    text(ctx, value, 680, y + 15, 20, "#fff", { align: "center", width: 75 });
-    if (index === 0) text(ctx, `(+${score.shinyPerfectCount.toLocaleString("en-US")})`, 730, y + 15, 18, "#fff");
-    ctx.restore();
+    const outline = ["#7e74a2", "#a67259", "#957885"][index];
+    const shadow = { color: ["#9e94c2", "#c69279", "#b598a5"][index], x: 1, y: 1 };
+    text(ctx, label, 629, y + 15, 20, "#fff", { align: "right", outline, shadow });
+    text(ctx, value, 680, y + 15, 20, "#fff", { align: "center", width: 75, family: semiboldFamily, outline, shadow });
+    if (index === 0) text(ctx, `(+${score.shinyPerfectCount.toLocaleString("en-US")})`, 730, y + 15, 20, "#8c839e", { family: semiboldFamily, outline: "#fff", shadow: { color: "#b7b7b7", x: 1, y: 1 } });
   });
   if (score.clearType === 4 || score.clearType === 5) {
     text(ctx, clearTypeLabel(score.clearType).toUpperCase(), 640, 641, 15, "#76637f", { align: "center" });
@@ -288,8 +309,8 @@ export async function renderScoreResult(score: SongScore) {
   ctx.globalAlpha = .3;
   ctx.drawImage(userBack, center - 310, -23, 330, 90);
   ctx.restore();
-  text(ctx, "结果", scene.contentLeft + 18, 28, 24, "#332d38");
-  text(ctx, partner.profile.user.name!, center - 58, 28, 28, "#302c35", { align: "right", width: 250, family: scoreFamily });
+  text(ctx, "结果", scene.contentLeft + 18, 28, 24, "#351827");
+  text(ctx, partner.profile.user.name!, center - 58, 28, 26, "#28242b", { align: "right", width: 250, family: scoreFamily });
   ctx.drawImage(frame, center - 50, -20, 100, 100);
   contain(ctx, partner.avatar, center - 43, -13, 86, 86);
   ctx.drawImage(rating, center + 59, -34, 118, 118);

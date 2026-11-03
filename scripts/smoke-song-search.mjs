@@ -144,7 +144,7 @@ try {
   expect(partnerAssets.some(url => /\/23u(?:\.[^/]+)?\.webp/.test(url))).toBe(true);
   expect(partnerAssets.some(url => /\/23u-icon(?:\.[^/]+)?\.webp/.test(url))).toBe(true);
   const fontRequests = exportFonts.length;
-  expect(fontRequests).toBe(4);
+  expect(fontRequests).toBe(6);
   await page.screenshot({ path: `${directory}/song-search-desktop.png`, fullPage: true });
 
   await selectOption(difficultySelect, 'BYD / INS');
