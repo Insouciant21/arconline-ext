@@ -7,6 +7,7 @@ import { getArcaeaCredentials, getConfig } from "../src/lib/config";
 import type { Env } from "../src/lib/environment";
 import { getSongScores } from "../src/lib/song-scores";
 import { Store } from "../src/lib/store";
+import { refreshScoreExportProfile } from "../src/lib/score-export-profile";
 
 let env: Env;
 const query = { term: "Aegleseeker", difficulty: 2, page: 1, sort: "title" } as const;
@@ -27,7 +28,7 @@ function mockUpstream() {
     const request = new Request(input, init), path = new URL(request.url).pathname;
     if (path === "/auth/login") return loginResponse();
     expect(request.headers.get("cookie")).toBe("sid=private-sid; ctrcode=private-country");
-    if (path === "/webapi/user/me") return Response.json({ success: true, value: { rating: 12500, name: "Player" } });
+    if (path === "/webapi/user/me") return Response.json({ success: true, value: { rating: 12500, name: "Player", character: 23 } });
     if (path === "/webapi/score/rating/me") return Response.json({ success: true, value: { best_rated_scores: [score] } });
     if (path === "/webapi/score/rating_progression/me") return Response.json({ success: true, value: [] });
     if (path === "/webapi/score/song/me/all") return Response.json({ success: true, value: { scores: [score], count: 1 } });
@@ -53,7 +54,7 @@ beforeEach(async () => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("persistent Lowiro sessions", () => {
-  it("reuses cookies across independent B50, history and song tasks without a validation request", async () => {
+  it("reuses cookies across independent B50, history, song and export tasks without a validation request", async () => {
     const upstream = mockUpstream();
     const b50 = await ArcaeaClient.login(env);
     expect(await b50.fetchB50Snapshot()).toMatchObject({ user: { name: "Player" }, best50: [{ songId: "aegleseeker" }] });
@@ -61,8 +62,9 @@ describe("persistent Lowiro sessions", () => {
     expect(await history.getPotentialHistory()).toEqual([]);
     expect(await getSongScores({ ...env }, new URLSearchParams({ term: query.term })))
       .toMatchObject({ count: 1, scores: [{ songId: "aegleseeker" }] });
+    expect(await refreshScoreExportProfile({ ...env })).toMatchObject({ characterAssetId: "23", user: { name: "Player" } });
     expect(loginCalls(upstream)).toHaveLength(1);
-    expect(upstream).toHaveBeenCalledTimes(5);
+    expect(upstream).toHaveBeenCalledTimes(6);
   });
 
   it("persists authenticated ciphertext and keeps it out of archive exports", async () => {

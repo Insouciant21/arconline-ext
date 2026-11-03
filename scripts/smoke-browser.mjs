@@ -72,9 +72,12 @@ try {
  const baseline=await baselineResponse.json();
  expect(baseline.activeJob).toBeNull();
  let failExportProfile=false;
- await page.route('**/api/score-export/profile',route=>failExportProfile
-  ?route.fulfill({status:502,json:{error:'用户信息暂时不可用，请重试导出。'}})
-  :route.fulfill({json:{characterAssetId:'23u',user:{name:'B50 Export Test',rating:12.939,characterId:23}}}));
+ await page.route('**/api/score-export/profile',route=>{
+  expect(route.request().method()).toBe('POST');
+  return failExportProfile
+   ?route.fulfill({status:502,json:{error:'用户信息暂时不可用，请重试导出。'}})
+   :route.fulfill({json:{characterAssetId:'23u',user:{...baseline.user,name:'B50 Export Test',rating:12.939,characterId:23}}});
+ });
  await page.evaluate(()=>{
   window.__exportText=[];
   const original=CanvasRenderingContext2D.prototype.fillText;
@@ -99,6 +102,9 @@ try {
  expect(exportProfileRequests).toBe(0);
  await exportOverview('desktop');
  expect(exportProfileRequests).toBe(1);
+ await expect(page.locator('.profile-copy h2')).toHaveText('B50 Export Test');
+ await expect(page.locator('.profile-potential strong')).toHaveText('12.939');
+ await expect(page.locator('#b50 .score-card')).toHaveCount(50);
  const firstScore=baseline.latest.best50[0];
  const firstCard=page.locator('#b50 .score-card').first();
  const bonus=await firstCard.locator('.score-count-bonus').textContent();

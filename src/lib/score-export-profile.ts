@@ -1,4 +1,4 @@
-import type { ArcaeaClient } from "./arcaea-client";
+import { ArcaeaClient } from "./arcaea-client";
 import { AppError } from "./errors";
 import type { Env } from "./environment";
 import { publicAssetUrl, putAsset } from "./r2";
@@ -17,8 +17,8 @@ export function characterAssetId(user: StoredUser) {
   return available.has(id) ? id : available.has(String(user.characterId)) ? String(user.characterId) : null;
 }
 
-// Run only during B50 synchronization, using the same already-authenticated
-// client and user response. Persist independently of score snapshot deduplication.
+// B50 sync and export refreshes share this cache, independently of score
+// snapshot deduplication, using the caller's already-authenticated client.
 export async function cacheScoreExportProfile(store: Store, source: StoredUser, getClient: () => Promise<ArcaeaClient>) {
   const user = { ...source };
   async function cacheAvatar() {
@@ -49,7 +49,7 @@ export async function cacheScoreExportProfile(store: Store, source: StoredUser, 
       }
       user.bannerImageKey = key;
     } catch {
-      throw new AppError("名片同步失败，请重试获取 B50。", 502, "EXPORT_BANNER_UNAVAILABLE");
+      throw new AppError("名片同步失败，请稍后重试。", 502, "EXPORT_BANNER_UNAVAILABLE");
     }
   }
   // Settle all uploads before allowing the durable job to retry.
@@ -58,6 +58,16 @@ export async function cacheScoreExportProfile(store: Store, source: StoredUser, 
   if (failure?.status === "rejected") throw failure.reason;
   await store.putCache("score-export", "profile", user);
   return user;
+}
+
+export async function refreshScoreExportProfile(env: Env): Promise<ScoreExportProfile> {
+  const client = await ArcaeaClient.login(env);
+  const user = await client.getUser();
+  if (!user.name || user.characterId === undefined || !Number.isFinite(user.rating)) {
+    throw new AppError("官网返回的用户资料不完整，请稍后重试。", 502, "EXPORT_PROFILE_INVALID");
+  }
+  const stored = await cacheScoreExportProfile(new Store(env), user, async () => client);
+  return exportProfile(env, stored);
 }
 
 export async function getScoreExportProfile(env: Env): Promise<ScoreExportProfile> {
@@ -69,6 +79,10 @@ export async function getScoreExportProfile(env: Env): Promise<ScoreExportProfil
     const row = await store.sql("SELECT json_extract(body,'$.user') AS user FROM snapshots ORDER BY fetched_at DESC,id DESC LIMIT 1").first<{ user: string }>();
     if (row?.user) stored = JSON.parse(row.user) as StoredUser;
   }
+  return exportProfile(env, stored);
+}
+
+async function exportProfile(env: Env, stored: StoredUser | undefined): Promise<ScoreExportProfile> {
   if (!stored?.name || stored.characterId === undefined || !Number.isFinite(stored.rating)) {
     throw new AppError("请先获取一次 B50，同步导出所需的用户资料。", 409, "EXPORT_PROFILE_MISSING");
   }

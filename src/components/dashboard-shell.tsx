@@ -21,8 +21,9 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { DashboardPayload, JobView } from "@/lib/types";
+import type { DashboardPayload, JobView, StoredUser } from "@/lib/types";
 import { formatJoinDate, formatRelativeDate } from "@/lib/utils";
+import { PLAYER_PROFILE_UPDATED_EVENT } from "@/lib/score-export-client";
 
 type ActionState = "idle" | "syncing" | "retrying" | "importing";
 type ChartRange = (typeof chartRanges)[number]["label"];
@@ -47,6 +48,15 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
   const [jobId, setJobId] = React.useState<string | null>(initialData.activeJob?.id || null);
   const [job, setJob] = React.useState<JobView | null>(initialData.activeJob);
   const latest = data.latest;
+  const user = data.user ?? latest?.user;
+  React.useEffect(() => {
+    const updateProfile = (event: Event) => {
+      const user = (event as CustomEvent<StoredUser>).detail;
+      setData(current => ({ ...current, user }));
+    };
+    window.addEventListener(PLAYER_PROFILE_UPDATED_EVENT, updateProfile);
+    return () => window.removeEventListener(PLAYER_PROFILE_UPDATED_EVENT, updateProfile);
+  }, []);
   async function submit(path: string, kind: "sync" | "retry" | "import") {
     setAction(kind === "sync" ? "syncing" : kind === "retry" ? "retrying" : "importing");
     setLastAction(kind); setError(null); setMessage(null);
@@ -124,10 +134,10 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
       <section className="profile-section" id="overview" aria-label="玩家信息">
         <div className="profile-card">
           <div className="profile-avatar">
-            {latest?.user.avatarImageUrl ? (
+            {user?.avatarImageUrl ? (
               <img
-                src={latest.user.avatarImageUrl}
-                alt={`${latest.user.name || "玩家"} 头像`}
+                src={user.avatarImageUrl}
+                alt={`${user.name || "玩家"} 头像`}
                 loading="eager"
                 decoding="async"
               />
@@ -137,16 +147,16 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
           </div>
           <div className="profile-copy">
             <span className="score-label">PLAYER PROFILE</span>
-            <h2>{latest?.user.name || "ARCAEA PLAYER"}</h2>
+            <h2>{user?.name || "ARCAEA PLAYER"}</h2>
             <p>
-              {latest?.user.userCode ? `USER CODE ${latest.user.userCode}` : "等待首次同步"}
-              {latest?.user.country ? ` · ${latest.user.country}` : ""}
-              {latest?.user.joinDate ? <span className="profile-join-date"> · JOINED {formatJoinDate(latest.user.joinDate)}</span> : null}
+              {user?.userCode ? `USER CODE ${user.userCode}` : "等待首次同步"}
+              {user?.country ? ` · ${user.country}` : ""}
+              {user?.joinDate ? <span className="profile-join-date"> · JOINED {formatJoinDate(user.joinDate)}</span> : null}
             </p>
           </div>
           <div className="profile-potential">
             <span>POTENTIAL</span>
-            <strong>{latest ? latest.potential.toFixed(3) : "—"}</strong>
+            <strong>{user ? user.rating.toFixed(3) : "—"}</strong>
           </div>
         </div>
         <div className="profile-toolbar">

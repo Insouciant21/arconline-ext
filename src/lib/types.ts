@@ -118,6 +118,7 @@ export interface PotentialHistoryPoint {
 }
 
 export interface DashboardPayload {
+  user: StoredUser | null;
   latest: B50Snapshot | null;
   history: PotentialHistoryPoint[];
   activeJob: JobView | null;

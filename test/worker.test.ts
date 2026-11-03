@@ -328,12 +328,100 @@ describe("score export profiles", () => {
     return result;
   }
 
-  it("requires authentication and GET without contacting Lowiro", async () => {
+  it("protects profile reads and refreshes with authentication, origin and maintenance checks", async () => {
     const upstream = vi.spyOn(ArcaeaClient, "login").mockRejectedValue(new Error("Unexpected login"));
     expect((await api(env, request("/api/score-export/profile"))).status).toBe(401);
+    expect((await api(env, request("/api/score-export/profile", "POST"))).status).toBe(401);
     const cookie = await login();
-    expect((await api(env, request("/api/score-export/profile", "POST", cookie))).status).toBe(405);
+    const invalid = await api(env, request("/api/score-export/profile", "DELETE", cookie));
+    expect(invalid.status).toBe(405);
+    expect(invalid.headers.get("allow")).toBe("GET, POST");
+    expect((await api(env, request("/api/score-export/profile", "POST", cookie, undefined, "https://evil.example"))).status).toBe(403);
+    expect((await api({ ...env, MUTATIONS_ENABLED: "false" }, request("/api/score-export/profile", "POST", cookie))).status).toBe(503);
     expect(upstream).not.toHaveBeenCalled();
+  });
+
+  it("refreshes export and dashboard profiles without modifying score snapshots or history", async () => {
+    const store = new Store(env), previous = fixture();
+    await store.writeSnapshot(previous);
+    const before = await store.history();
+    const source = uncachedFixture();
+    Object.assign(source.user, { name: "Current Player", rating: 13, characterId: 23, characterUncapped: true,
+      bannerId: "course_banner_8", bannerResource: "b".repeat(32) });
+    const client = mockLowiro(source);
+    env.R2_PUBLIC_URL = "https://images.example.com";
+    const cookie = await login();
+    const response = await api(env, request("/api/score-export/profile", "POST", cookie));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toMatchObject({ characterAssetId: "23u", user: { name: "Current Player", rating: 13,
+      avatarImageUrl: `/api/media/characters/${source.user.characterIcon}.png` }, bannerImageUrl: `/api/media/banners/${"b".repeat(32)}.png` });
+    const dashboard = await api(env, request("/api/dashboard", "GET", cookie));
+    expect(await dashboard.json()).toMatchObject({ user: { name: "Current Player", rating: 13,
+      avatarImageUrl: `https://images.example.com/characters/${source.user.characterIcon}.png` }, latest: { potential: 12.5, user: { name: "Test" } } });
+    expect(await store.snapshot(previous.id)).toEqual(previous);
+    expect(await store.snapshots()).toHaveLength(1);
+    expect(await store.history()).toEqual(before);
+    expect(client.getUser).toHaveBeenCalledTimes(1);
+    expect(client.fetchB50Snapshot).not.toHaveBeenCalled();
+    expect(client.getPotentialHistory).not.toHaveBeenCalled();
+    expect(client.getOnlineImage).not.toHaveBeenCalled();
+    expect(client.getCharacterIconImage).toHaveBeenCalledTimes(1);
+    expect(client.getBannerImage).toHaveBeenCalledTimes(1);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("allows a first export without B50 and reuses unchanged avatar and banner files", async () => {
+    const source = uncachedFixture();
+    Object.assign(source.user, { bannerId: "course_banner_8", bannerResource: "b".repeat(32) });
+    const client = mockLowiro(source), cookie = await login();
+    for (let index = 0; index < 2; index++) {
+      const response = await api(env, request("/api/score-export/profile", "POST", cookie));
+      expect(response.status).toBe(200);
+    }
+    expect(client.getUser).toHaveBeenCalledTimes(2);
+    expect(client.getCharacterIconImage).toHaveBeenCalledTimes(1);
+    expect(client.getBannerImage).toHaveBeenCalledTimes(1);
+    expect(await new Store(env).latest()).toBeNull();
+    expect(await (await api(env, request("/api/dashboard", "GET", cookie))).json()).toMatchObject({ user: { name: "Test" }, latest: null });
+    delete source.user.bannerResource; delete source.user.bannerId;
+    source.user.characterIcon = "d".repeat(32);
+    source.user.characterUncapped = true;
+    source.user.characterUncappedOverride = true;
+    const response = await api(env, request("/api/score-export/profile", "POST", cookie));
+    const profile = await response.json();
+    expect(profile).toMatchObject({ characterAssetId: "7", user: { avatarImageUrl: `/api/media/characters/${"d".repeat(32)}.png` } });
+    expect(profile).not.toHaveProperty("bannerImageUrl");
+    expect(profile).not.toHaveProperty("user.bannerImageKey");
+  });
+
+  it("keeps the last good profile if a fresh profile or banner request fails", async () => {
+    const store = new Store(env), old = { rating: 12.5, name: "Previous Player", characterId: 7 };
+    await store.putCache("score-export", "profile", old);
+    const source = uncachedFixture();
+    Object.assign(source.user, { bannerResource: "b".repeat(32) });
+    const client = mockLowiro(source), cookie = await login();
+    client.getUser.mockRejectedValueOnce(new Error("Temporary profile failure"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect((await api(env, request("/api/score-export/profile", "POST", cookie))).status).toBe(500);
+    expect((await store.cache("score-export")).profile).toEqual(old);
+    client.getBannerImage.mockRejectedValueOnce(new Error("Temporary banner failure"));
+    const response = await api(env, request("/api/score-export/profile", "POST", cookie));
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ code: "EXPORT_BANNER_UNAVAILABLE" });
+    expect((await store.cache("score-export")).profile).toEqual(old);
+    expect((await api(env, request("/api/score-export/profile", "POST", cookie))).status).toBe(200);
+  });
+
+  it("rejects incomplete live user data before overwriting a valid profile", async () => {
+    const store = new Store(env), old = { rating: 12.5, name: "Previous Player", characterId: 7 };
+    await store.putCache("score-export", "profile", old);
+    mockLowiro(fixture());
+    const cookie = await login();
+    const response = await api(env, request("/api/score-export/profile", "POST", cookie));
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ code: "EXPORT_PROFILE_INVALID" });
+    expect((await store.cache("score-export")).profile).toEqual(old);
   });
 
   it("selects the partner's awakened art and honors the illustration override", () => {
@@ -412,6 +500,8 @@ describe("score export profiles", () => {
     expect((await store.latest())?.user.name).toBe("Test");
     const response = await api(env, request("/api/score-export/profile", "GET", cookie));
     expect(await response.json()).toMatchObject({ characterAssetId: "23u", user: { name: "Changed Player", rating: 13 } });
+    const dashboard = await api(env, request("/api/dashboard", "GET", cookie));
+    expect(await dashboard.json()).toMatchObject({ user: { name: "Changed Player", rating: 13 } });
     expect(ArcaeaClient.login).toHaveBeenCalledTimes(2);
     expect(client.fetchB50Snapshot).toHaveBeenCalledTimes(2);
     expect(client.getUser).not.toHaveBeenCalled();
