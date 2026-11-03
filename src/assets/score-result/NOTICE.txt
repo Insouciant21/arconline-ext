@@ -1,0 +1,4 @@
+Result-screen textures, grade graphics, judgement bars and fonts originate from
+the user-provided Arcaea 7.1.0c APK (moe.low.arc). Original rights belong to their
+respective owners. Images are optimized to WebP and fonts to WOFF2 for lazy loading.
+The export composition is implemented in src/lib/score-result-renderer.ts.

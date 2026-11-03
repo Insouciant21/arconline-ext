@@ -5,6 +5,7 @@ import { parseEnv } from 'node:util';
 const origin = process.env.SMOKE_ORIGIN || 'http://127.0.0.1:4321';
 const token = process.env.SMOKE_TOKEN || (process.env.SMOKE_ENV_FILE ? parseEnv(await readFile(process.env.SMOKE_ENV_FILE, 'utf8')).ADMIN_TOKEN : 'local-test-token');
 const directory = 'test-results/browser';
+const referenceArtwork = process.env.SMOKE_ARTWORK_FILE ? await readFile(process.env.SMOKE_ARTWORK_FILE) : null;
 await mkdir(directory, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 const score = {
@@ -17,7 +18,21 @@ try {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const page = await context.newPage();
   const errors = [];
+  const exportAssets = [];
+  const exportFonts = [];
   page.on('pageerror', error => errors.push(error.message));
+  page.on('request', request => {
+    if (/result-(text|score|cjk).*woff2|score-result\/|background\..*webp/.test(request.url())) exportAssets.push(request.url());
+    if (request.resourceType() === 'font' && /result-(text|score|cjk).*woff2/.test(request.url())) exportFonts.push(request.url());
+  });
+  await page.addInitScript(() => {
+    window.__exportText = [];
+    const fillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (value, x, y, ...rest) {
+      window.__exportText.push({ value, x, y, font: this.font, width: this.measureText(value).width });
+      return fillText.call(this, value, x, y, ...rest);
+    };
+  });
   await page.goto(origin + '/scores');
   await page.waitForURL('**/login?callbackUrl=%2Fscores');
   await page.locator('astro-island:not([ssr])').waitFor();
@@ -28,10 +43,15 @@ try {
   await expect(page.getByRole('link', { name: '单曲查询', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('heading', { name: '查找一首歌' })).toBeVisible();
 
-  let fail = true;
+  let fail = true, recoverArtwork = false;
   const requests = [];
   // Exercise the browser independently of subscription status and upstream changes.
-  await page.route('**/api/media/charts/song-search-test.svg', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#6354b8"/><stop offset="1" stop-color="#8f3482"/></linearGradient></defs><path fill="url(#g)" d="M0 0h400v400H0z"/><path stroke="#fff" stroke-opacity=".35" fill="none" d="m200 40 140 240H60z"/><text x="200" y="320" fill="#fff" text-anchor="middle" font-size="26">AEGLESEEKER</text></svg>' }));
+  await page.route('**/api/media/charts/song-search-test.svg', route => route.fulfill(referenceArtwork
+    ? { contentType: 'image/jpeg', body: referenceArtwork }
+    : { contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#6354b8"/><stop offset="1" stop-color="#8f3482"/></linearGradient></defs><path fill="url(#g)" d="M0 0h400v400H0z"/><path stroke="#fff" stroke-opacity=".35" fill="none" d="m200 40 140 240H60z"/><text x="200" y="320" fill="#fff" text-anchor="middle" font-size="26">AEGLESEEKER</text></svg>' }));
+  await page.route('**/api/media/charts/export-retry.svg', route => recoverArtwork
+    ? route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><path fill="#6255b8" d="M0 0h512v512H0z"/></svg>' })
+    : route.fulfill({ status: 403, body: 'Media unavailable' }));
   await page.route(/\/api\/scores(?:\?|$)/, async route => {
     const params = new URL(route.request().url()).searchParams;
     requests.push(Object.fromEntries(params));
@@ -39,6 +59,8 @@ try {
     await new Promise(resolve => setTimeout(resolve, 180));
     if (term === 'failure' && fail) { fail = false; return route.fulfill({ status: 502, json: { error: '官网暂时不可用，请重试。' } }); }
     if (term === 'missing') return route.fulfill({ json: { scores: [], count: 0 } });
+    if (term === 'art-failure') return route.fulfill({ json: { scores: [{ ...score, imageUrl: '/api/media/charts/export-retry.svg' }], count: 1 } });
+    if (term === 'eternal') return route.fulfill({ json: { scores: [{ ...score, songId: 'sayonarahatsukoi', difficulty: 4, title: { zh: '再见初恋 · さよなら初恋' } }], count: 1 } });
     if (term === 'Arcaea') {
       const page = Number(params.get('page'));
       return route.fulfill({ json: { scores: Array.from({ length: page === 2 ? 1 : 10 }, (_, index) => ({ ...score, songId: `song-${(page - 1) * 10 + index}`, title: { en: `Arcaea ${index + 1}` } })), count: 11 } });
@@ -48,6 +70,20 @@ try {
   async function search(term) {
     await page.getByLabel('曲名或歌曲 ID').fill(term);
     await page.getByRole('button', { name: '查询成绩', exact: true }).click();
+  }
+  async function exportResult(name) {
+    await page.evaluate(() => { window.__exportText = []; });
+    const downloadEvent = page.waitForEvent('download');
+    await page.getByRole('button', { name: '导出', exact: true }).click();
+    const download = await downloadEvent;
+    expect(download.suggestedFilename()).toMatch(/^[a-z0-9_-]+\.png$/i);
+    const path = `${directory}/score-result-${name}.png`;
+    await download.saveAs(path);
+    const bytes = await readFile(path);
+    expect(bytes.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+    expect([bytes.readUInt32BE(16), bytes.readUInt32BE(20)]).toEqual([2560, 1440]);
+    await expect(page.getByRole('button', { name: '导出', exact: true })).toBeEnabled();
+    return page.evaluate(() => window.__exportText);
   }
   const difficultySelect = page.getByRole('combobox', { name: '谱面难度' });
   const sortSelect = page.getByRole('combobox', { name: '排序方式' });
@@ -85,6 +121,14 @@ try {
   await expect(page.locator('.score-count-bonus')).toHaveText('(+1,469)');
   await expect(page.locator('.song-score-meta')).toContainText('年内游玩 8 次');
   await expect(page.locator('.score-rating, .score-rank, .score-potential strong')).toHaveCount(0);
+  await expect(page.locator('.score-song-id')).toHaveCount(0);
+  expect(exportAssets).toEqual([]);
+  const referenceText = await exportResult('aegleseeker');
+  expect(referenceText.map(item => item.value)).toEqual(expect.arrayContaining(['Aegleseeker', '09’960’014', '定数', '11.2', '单曲 PTT', '13.200', '1,559 (+1,469)']));
+  expect(referenceText.map(item => item.value).join(' ')).not.toMatch(/HIGH SCORE|MAX RECALL|FRAGMENT/);
+  expect(exportAssets.length).toBeGreaterThan(0);
+  const fontRequests = exportFonts.length;
+  expect(fontRequests).toBe(3);
   await page.screenshot({ path: `${directory}/song-search-desktop.png`, fullPage: true });
 
   await selectOption(difficultySelect, 'BYD / INS');
@@ -93,6 +137,10 @@ try {
   await expect(page.locator('.difficulty-diamond')).toHaveText('INS');
   expect(requests.at(-1)).toEqual({ term: 'Dread & Area', difficulty: '3', page: '1', sort: 'score_below_max' });
   expect(new URL(page.url()).searchParams.get('term')).toBe('Dread & Area');
+  const insText = await exportResult('inscribed');
+  expect(insText.map(item => item.value)).toEqual(expect.arrayContaining(['INS', 'INSCRIBED', '11.4', '13.400']));
+  expect(insText.find(item => item.value.includes('Extradimensional')).width).toBeLessThanOrEqual(1150);
+  expect(exportFonts).toHaveLength(fontRequests);
   for (const width of [1440, 768, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
@@ -131,6 +179,8 @@ try {
   await expect(page.locator('.score-card')).toHaveCount(1);
   await expect(page.locator('.song-search-pagination')).toContainText('第 2 / 2 页');
   await expect(page.getByRole('button', { name: '下一页' })).toBeDisabled();
+  const missingConstantText = await exportResult('unlisted');
+  expect(missingConstantText.filter(item => item.value === '—')).toHaveLength(2);
   await page.reload();
   await expect(page.getByLabel('曲名或歌曲 ID')).toHaveValue('Arcaea');
   await expect(difficultySelect).toHaveText('FTR · Future');
@@ -148,6 +198,22 @@ try {
   await page.getByRole('button', { name: '重试查询' }).click();
   await expect(page.locator('.score-card')).toHaveCount(1);
   await expect(page.getByRole('alert')).toHaveCount(0);
+  await search('art-failure');
+  await expect(page.locator('.score-art img')).toHaveAttribute('src', '/api/media/charts/export-retry.svg');
+  await page.getByRole('button', { name: '导出', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('曲绘加载失败');
+  await expect(page.getByRole('button', { name: '导出', exact: true })).toBeEnabled();
+  await page.setViewportSize({ width: 320, height: 900 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+  recoverArtwork = true;
+  await exportResult('retry');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await selectOption(difficultySelect, 'ETR · Eternal');
+  await search('eternal');
+  await expect(page.locator('.difficulty-diamond')).toHaveText('ETR');
+  const eternalText = await exportResult('eternal-mobile');
+  expect(eternalText.map(item => item.value)).toEqual(expect.arrayContaining(['ETR', 'ETERNAL', '8.5', '10.500', '再见初恋 · さよなら初恋']));
+  await page.screenshot({ path: `${directory}/song-export-mobile.png`, fullPage: true });
   const touchContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, storageState: await context.storageState() });
   const touchPage = await touchContext.newPage();
   touchPage.on('pageerror', error => errors.push(error.message));
@@ -161,5 +227,5 @@ try {
   await expect(touchPage.getByRole('listbox')).toHaveCount(0);
   await touchContext.close();
   expect(errors).toEqual([]);
-  console.log(JSON.stringify({ origin, authenticated: true, search: true, filters: true, dropdown: { keyboard: true, escape: true, outsideClick: true, touch: true }, pagination: true, history: true, empty: true, retry: true, responsive: [320, 390, 768, 1440], pageErrors: errors.length }));
+  console.log(JSON.stringify({ origin, authenticated: true, search: true, export: { png: '2560x1440', constants: true, ptt: true, inscribed: true, eternal: true, missingConstant: true, retry: true, lazyAssets: true }, filters: true, dropdown: { keyboard: true, escape: true, outsideClick: true, touch: true }, pagination: true, history: true, empty: true, retry: true, responsive: [320, 390, 768, 1440], pageErrors: errors.length }));
 } finally { await browser.close(); }

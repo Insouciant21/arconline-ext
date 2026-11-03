@@ -55,6 +55,11 @@ function scoreModifier(score: number) {
   return (score - 9_500_000) / 300_000;
 }
 
+/** Current single-play PTT, using the same clear bonus as Lowiro's B50 ratings. */
+export function playRatingFromConstant(constant: number, score: { score: number; clearType: number }) {
+  return Math.max(0, constant + scoreModifier(score.score) + (score.clearType > 0 ? 0.2 : 0));
+}
+
 /**
  * Reverse the current single-play rating formula to infer the chart constant.
  * Lowiro's rating includes a 0.2 clear bonus for a non-lost result.

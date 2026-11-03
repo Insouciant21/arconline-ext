@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 import type { Best50Score, SongScore } from "@/lib/types";
 import {
   clearTypeCode,
@@ -13,7 +13,7 @@ import {
   shinyPureCount,
 } from "@/lib/utils";
 
-export const ScoreCard = memo(function ScoreCard({ score, rank }: { score: Best50Score | SongScore; rank?: number }) {
+export const ScoreCard = memo(function ScoreCard({ score, rank, detailAction }: { score: Best50Score | SongScore; rank?: number; detailAction?: ReactNode }) {
   const title = score.title.zh || score.title.en || score.title.ja || score.songId;
   const playedAt = score.timePlayed > 0 ? formatRelativeDate(score.timePlayed) : "—";
   const chartConstant = "rating" in score ? chartConstantFromScore(score) : null;
@@ -60,7 +60,7 @@ export const ScoreCard = memo(function ScoreCard({ score, rank }: { score: Best5
 
           <div className="score-detail-row">
             <span><b>DATE</b>{playedAt}</span>
-            <span className="score-song-id" title={score.songId}>{score.songId}</span>
+            {detailAction ?? <span className="score-song-id" title={score.songId}>{score.songId}</span>}
           </div>
         </div>
       </div>

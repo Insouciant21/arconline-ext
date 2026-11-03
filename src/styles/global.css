@@ -2178,6 +2178,39 @@ body::before {
 .song-search-status:empty { display: none; }
 .song-search-status strong { color: var(--violet); font-family: var(--font-number); font-size: 18px; }
 .song-search-grid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.song-search-grid .score-detail-row { flex-wrap: wrap; row-gap: 5px; }
+.score-export-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 24px;
+  margin: -3px -4px -3px auto;
+  padding: 3px 4px;
+  border: 0;
+  color: var(--violet);
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: 10px;
+  line-height: 1.4;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+.score-export-button:hover { background: var(--surface-soft); }
+.score-export-button:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
+.score-export-button:disabled { opacity: .6; cursor: progress; }
+.score-export-error {
+  flex: 0 0 100%;
+  margin: 3px 0 0;
+  color: var(--danger);
+  font-family: var(--font-body);
+  font-size: 10px;
+  line-height: 1.6;
+  letter-spacing: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .song-score-meta {
   display: flex;
   flex-wrap: wrap;
