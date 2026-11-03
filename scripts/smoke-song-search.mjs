@@ -6,6 +6,7 @@ const origin = process.env.SMOKE_ORIGIN || 'http://127.0.0.1:4321';
 const token = process.env.SMOKE_TOKEN || (process.env.SMOKE_ENV_FILE ? parseEnv(await readFile(process.env.SMOKE_ENV_FILE, 'utf8')).ADMIN_TOKEN : 'local-test-token');
 const directory = 'test-results/browser';
 const referenceArtwork = process.env.SMOKE_ARTWORK_FILE ? await readFile(process.env.SMOKE_ARTWORK_FILE) : null;
+const nameplateFixture = await readFile(new URL('../src/assets/score-result/user-panel.webp', import.meta.url));
 await mkdir(directory, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 const score = {
@@ -21,11 +22,13 @@ try {
   const exportAssets = [];
   const exportFonts = [];
   const partnerAssets = [];
+  const nameplateAssets = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('request', request => {
     if (/result-(text|score|cjk|number).*woff2|score-result\/|background\..*webp/.test(request.url())) exportAssets.push(request.url());
     if (request.resourceType() === 'font' && /result-(text|score|cjk|number).*woff2/.test(request.url())) exportFonts.push(request.url());
     if (request.resourceType() === 'image' && /\/(?:23u?|23u?-icon)(?:\.[^/]+)?\.webp/.test(request.url())) partnerAssets.push(request.url());
+    if (request.url().includes('/api/media/banners/')) nameplateAssets.push(request.url());
   });
   await page.addInitScript(() => {
     window.__exportText = [];
@@ -53,11 +56,14 @@ try {
     profileRequests++;
     return failProfile ? route.fulfill({ status: 502, json: { error: '用户信息暂时不可用，请重试导出。' } }) : route.fulfill({ json: {
       characterAssetId: useBasePartner ? '23' : '23u', user: { name: 'Test Player · 咲弥', userCode: '123456789', rating: 12.939,
-        characterId: 23, characterUncapped: true, characterUncappedOverride: useBasePartner, avatarImageUrl: '/api/media/characters/export-avatar.png' },
+        characterId: 23, characterUncapped: true, characterUncappedOverride: useBasePartner, avatarImageUrl: '/api/media/characters/export-avatar.png',
+        bannerId: useBasePartner ? 'course_banner_8' : 'online_banner_2026_10' },
+      bannerImageUrl: `/api/media/banners/${useBasePartner ? 'changed' : 'equipped'}.png`,
     } });
   });
   // An unavailable cached avatar must use the matching native partner icon.
   await page.route('**/api/media/characters/export-avatar.png', route => route.fulfill({ status: 404, body: 'Avatar unavailable' }));
+  await page.route('**/api/media/banners/*.png', route => route.fulfill({ contentType: 'image/webp', body: nameplateFixture }));
   await page.route('**/api/media/charts/song-search-test.svg', route => route.fulfill(referenceArtwork
     ? { contentType: 'image/jpeg', body: referenceArtwork }
     : { contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#6354b8"/><stop offset="1" stop-color="#8f3482"/></linearGradient></defs><path fill="url(#g)" d="M0 0h400v400H0z"/><path stroke="#fff" stroke-opacity=".35" fill="none" d="m200 40 140 240H60z"/><text x="200" y="320" fill="#fff" text-anchor="middle" font-size="26">AEGLESEEKER</text></svg>' }));
@@ -136,12 +142,16 @@ try {
   await expect(page.locator('.score-song-id')).toHaveCount(0);
   expect(exportAssets).toEqual([]);
   expect(profileRequests).toBe(0);
+  expect(nameplateAssets).toEqual([]);
   const referenceText = await exportResult('aegleseeker');
-  expect(referenceText.map(item => item.value)).toEqual(expect.arrayContaining(['Aegleseeker', "09'960'014", '定数', '11.2', '单曲 PTT', '13.200', '1559', '(+1469)', '11', 'Test Player · 咲弥', '12.939', 'ArcOnline', 'Extension']));
+  expect(referenceText.map(item => item.value)).toEqual(expect.arrayContaining(['Aegleseeker', "09'960'014", '定数', '11.2', '单曲 PTT', '13.200', '1559', '(+1469)', '11', 'Test Player · 咲弥', '12.', '939', 'ArcOnline', 'Extension']));
+  expect(Number.parseFloat(referenceText.find(item => item.value === '939').font)).toBeLessThan(Number.parseFloat(referenceText.find(item => item.value === '12.').font));
   expect(referenceText.map(item => item.value)).not.toContain('ArcOnline Extension');
   expect(referenceText.map(item => item.value).join(' ')).not.toMatch(/HIGH SCORE|MAX RECALL|FRAGMENT/);
   expect(exportAssets.length).toBeGreaterThan(0);
   expect(profileRequests).toBe(1);
+  expect(nameplateAssets).toHaveLength(1);
+  expect(nameplateAssets[0]).toContain('/equipped.png');
   expect(partnerAssets.some(url => /\/23u(?:\.[^/]+)?\.webp/.test(url))).toBe(true);
   expect(partnerAssets.some(url => /\/23u-icon(?:\.[^/]+)?\.webp/.test(url))).toBe(true);
   const fontRequests = exportFonts.length;
@@ -158,6 +168,7 @@ try {
   const insText = await exportResult('inscribed');
   expect(insText.map(item => item.value)).toEqual(expect.arrayContaining(['11', 'INSCRIBED', '11.4', '13.400']));
   expect(profileRequests).toBe(2);
+  expect(nameplateAssets.at(-1)).toContain('/changed.png');
   expect(partnerAssets.some(url => /\/23(?:\.[^/]+)?\.webp/.test(url))).toBe(true);
   expect(insText.find(item => item.value.includes('Extradimensional')).width).toBeLessThanOrEqual(1150);
   expect(exportFonts).toHaveLength(fontRequests);
@@ -255,5 +266,5 @@ try {
   await expect(touchPage.getByRole('listbox')).toHaveCount(0);
   await touchContext.close();
   expect(errors).toEqual([]);
-  console.log(JSON.stringify({ origin, authenticated: true, search: true, export: { png: '3124x1440', constants: true, ptt: true, inscribed: true, eternal: true, missingConstant: true, retry: true, lazyAssets: true, profile: true, nativePartner: true, avatarFallback: true, partnerSwitch: true }, filters: true, dropdown: { keyboard: true, escape: true, outsideClick: true, touch: true }, pagination: true, history: true, empty: true, retry: true, responsive: [320, 390, 768, 1440], pageErrors: errors.length }));
+  console.log(JSON.stringify({ origin, authenticated: true, search: true, export: { png: '3124x1440', constants: true, ptt: true, inscribed: true, eternal: true, missingConstant: true, retry: true, lazyAssets: true, profile: true, nativePartner: true, avatarFallback: true, partnerSwitch: true, equippedNameplate: true, nameplateSwitch: true }, filters: true, dropdown: { keyboard: true, escape: true, outsideClick: true, touch: true }, pagination: true, history: true, empty: true, retry: true, responsive: [320, 390, 768, 1440], pageErrors: errors.length }));
 } finally { await browser.close(); }

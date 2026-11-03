@@ -40,7 +40,7 @@ async function deliver(message:JobMessage) {
   return {ack,retry};
 }
 function mockLowiro(snapshot = fixture()) {
-  const client={ getUser:vi.fn(async()=>({...snapshot.user})), fetchB50Snapshot:vi.fn(async()=>({user:snapshot.user,best50:snapshot.best50})), getPotentialHistory:vi.fn(async()=>[{timePlayed:Date.parse(snapshot.fetchedAt),potential:snapshot.potential}]), getBest50:vi.fn(async()=>snapshot.best50), getOnlineImage:vi.fn(async()=>({body:new Uint8Array([1,2,3]).buffer,contentType:"image/png"})), getChartImage:vi.fn(async()=>({body:new Uint8Array([1,2,3]).buffer,contentType:"image/jpeg"})), getCharacterIconImage:vi.fn(async()=>({body:new Uint8Array([1]).buffer,contentType:"image/png"})) };
+  const client={ getUser:vi.fn(async()=>({...snapshot.user})), fetchB50Snapshot:vi.fn(async()=>({user:snapshot.user,best50:snapshot.best50})), getPotentialHistory:vi.fn(async()=>[{timePlayed:Date.parse(snapshot.fetchedAt),potential:snapshot.potential}]), getBest50:vi.fn(async()=>snapshot.best50), getOnlineImage:vi.fn(async()=>({body:new Uint8Array([1,2,3]).buffer,contentType:"image/png"})), getChartImage:vi.fn(async()=>({body:new Uint8Array([1,2,3]).buffer,contentType:"image/jpeg"})), getCharacterIconImage:vi.fn(async()=>({body:new Uint8Array([1]).buffer,contentType:"image/png"})), getBannerImage:vi.fn(async()=>({body:new Uint8Array([1,2]).buffer,contentType:"image/png"})) };
   vi.spyOn(ArcaeaClient,"login").mockResolvedValue(client as unknown as ArcaeaClient);
   return client;
 }
@@ -378,6 +378,80 @@ describe("score export profiles", () => {
     expect(client.getUser).toHaveBeenCalledTimes(2);
     expect(client.getCharacterIconImage).toHaveBeenCalledExactlyOnceWith(snapshot.user.characterIcon);
     expect(await env.ARCHIVE.head(`characters/${snapshot.user.characterIcon}.png`)).not.toBeNull();
+  });
+
+  it("selects the equipped banner, honors hidden plates and defaults to the highest course", async () => {
+    const banners = [
+      { id: "course_banner_2", resource: "2".repeat(32) },
+      { id: "course_banner_10", resource: "a".repeat(32) },
+      { id: "online_banner_2026_10", resource: "b".repeat(32) },
+      { id: "../private", resource: "c".repeat(32) },
+      { id: "course_banner_999", resource: "../../private" },
+    ];
+    let custom: unknown = "online_banner_2026_10";
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const upstream = new Request(input, init);
+      if (new URL(upstream.url).pathname === "/auth/login") {
+        return Response.json({ isLoggedIn: true }, { headers: { "set-cookie": "lowiro=private-session; Secure" } });
+      }
+      return Response.json({ value: { name: "Current Player", rating: 12939, character: 23, banners, custom_banner: custom } });
+    });
+    const client = await ArcaeaClient.login(env);
+    expect(await client.getUser()).toMatchObject({ bannerId: "online_banner_2026_10", bannerResource: "b".repeat(32) });
+    for (custom of [undefined, "not-owned", "../private"]) {
+      expect(await client.getUser()).toMatchObject({ bannerId: "course_banner_10", bannerResource: "a".repeat(32) });
+    }
+    custom = "hidden";
+    expect(await client.getUser()).not.toHaveProperty("bannerResource");
+  });
+
+  it("caches banner hashes once, refreshes the selection and protects the same-origin image", async () => {
+    const snapshot = uncachedFixture();
+    snapshot.user.bannerId = "online_banner_2026_10";
+    snapshot.user.bannerResource = "b".repeat(32);
+    const client = mockLowiro(snapshot);
+    env.R2_PUBLIC_URL = "https://images.example.com";
+    const cookie = await login();
+    for (let i = 0; i < 2; i++) {
+      const response = await api(env, request("/api/score-export/profile", "GET", cookie));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ bannerImageUrl: `/api/media/banners/${"b".repeat(32)}.png` });
+    }
+    expect(client.getBannerImage).toHaveBeenCalledExactlyOnceWith("b".repeat(32));
+    const path = `/api/media/banners/${"b".repeat(32)}.png`;
+    expect((await api(env, request(path))).status).toBe(401);
+    const image = await api(env, request(path, "GET", cookie));
+    expect(image.status).toBe(200);
+    expect(image.headers.get("cache-control")).toContain("private");
+    expect(new Uint8Array(await image.arrayBuffer())).toEqual(new Uint8Array([1, 2]));
+    snapshot.user.bannerResource = "d".repeat(32);
+    const changed = await api(env, request("/api/score-export/profile", "GET", cookie));
+    expect(await changed.json()).toMatchObject({ bannerImageUrl: `/api/media/banners/${"d".repeat(32)}.png` });
+    expect(client.getBannerImage).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports banner failures for retry rather than silently substituting a different plate", async () => {
+    const snapshot = fixture();
+    snapshot.user.characterId = 23;
+    snapshot.user.bannerId = "online_banner_2026_10";
+    snapshot.user.bannerResource = "b".repeat(32);
+    const client = mockLowiro(snapshot);
+    client.getBannerImage.mockRejectedValueOnce(new Error("Temporary banner failure"));
+    const cookie = await login();
+    const failed = await api(env, request("/api/score-export/profile", "GET", cookie));
+    expect(failed.status).toBe(502);
+    expect(await failed.json()).toMatchObject({ code: "EXPORT_BANNER_UNAVAILABLE" });
+    expect(await env.ARCHIVE.head(`banners/${"b".repeat(32)}.png`)).toBeNull();
+    expect((await api(env, request("/api/score-export/profile", "GET", cookie))).status).toBe(200);
+  });
+
+  it("rejects invalid banner resource paths before requesting an image", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ isLoggedIn: true }, { headers: { "set-cookie": "session=test" } }));
+    const client = await ArcaeaClient.login(env);
+    for (const resource of ["../../private", "https://example.com/image", "b".repeat(33)]) {
+      await expect(client.getBannerImage(resource)).rejects.toMatchObject({ code: "ARCAEA_BANNER_INVALID" });
+    }
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the matching bundled avatar available when the upstream image fails", async () => {

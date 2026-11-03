@@ -36,6 +36,7 @@ import type { ImageMetadata } from "astro";
 import type { ScoreExportProfile, SongScore } from "./types";
 import { clearTypeLabel, difficultyCode, difficultyLabel } from "./utils";
 import { scoreResultData } from "./score-result";
+import bannerPalettes from "./score-result-banners.json";
 
 const grades = { d: gradeD, c: gradeC, b: gradeB, a: gradeA, aa: gradeAA, ex: gradeEX, explus: gradeEXPlus };
 const clears = { fail: clearFail, normal: clearNormal, full: clearFull, pure: clearPure };
@@ -43,6 +44,8 @@ const difficulties = { PST: difficultyPst, PRS: difficultyPrs, FTR: difficultyFt
 // Vite emits URLs for every available partner; only the selected pair is fetched.
 const partners = import.meta.glob<ImageMetadata>("../assets/score-result/characters/*.webp", { eager: true, import: "default" });
 const potentialBadges = import.meta.glob<ImageMetadata>("../assets/score-result/potential-*.webp", { eager: true, import: "default" });
+// Native nameplate text/shadow colors for the banners included in the APK.
+const nameplateColors: Record<string, { color: string; shadow: string }> = bannerPalettes;
 const textFamily = '"Arcaea Result Text", "Arcaea Result CJK", sans-serif';
 const semiboldFamily = '"Arcaea Result Text Semibold", "Arcaea Result CJK", sans-serif';
 const scoreFamily = '"Arcaea Result Score", "Arcaea Result Text", sans-serif';
@@ -82,14 +85,15 @@ async function loadPartner() {
   const prefix = `../assets/score-result/characters/${profile.characterAssetId}`;
   const icon = partners[`${prefix}-icon.webp`];
   if (!icon) throw new Error("当前搭档的头像素材未收录，请更新后重试。");
-  const [illustration, avatar, badge] = await Promise.all([
+  const [illustration, avatar, badge, nameplate] = await Promise.all([
     loadImage(partners[`${prefix}.webp`].src),
     profile.user.avatarImageUrl
       ? loadImage(profile.user.avatarImageUrl, true).catch(() => loadImage(icon.src))
       : loadImage(icon.src),
     loadImage(potentialBadge(profile.user.rating).src),
+    profile.bannerImageUrl ? loadImage(profile.bannerImageUrl) : Promise.resolve(null),
   ]);
-  return { profile, illustration, avatar, badge };
+  return { profile, illustration, avatar, badge, nameplate };
 }
 
 function deadline<T>(operation: Promise<T>, message: string): Promise<T> {
@@ -141,7 +145,7 @@ function loadImage(src: string, artwork = false) {
 }
 
 function text(ctx: CanvasRenderingContext2D, value: string, x: number, y: number, size: number, color: string, options: {
-  align?: CanvasTextAlign; width?: number; family?: string; minSize?: number;
+  align?: CanvasTextAlign; baseline?: CanvasTextBaseline; width?: number; family?: string; minSize?: number;
   outline?: string; outlineWidth?: number; shadow?: { color: string; x: number; y: number; blur?: number };
 } = {}) {
   ctx.save();
@@ -156,7 +160,7 @@ function text(ctx: CanvasRenderingContext2D, value: string, x: number, y: number
   }
   ctx.fillStyle = color;
   ctx.textAlign = options.align || "left";
-  ctx.textBaseline = "middle";
+  ctx.textBaseline = options.baseline || "middle";
   if (options.outline) {
     ctx.strokeStyle = options.outline;
     ctx.lineWidth = options.outlineWidth ?? 1;
@@ -317,18 +321,46 @@ export async function renderScoreResult(score: SongScore) {
 
   ctx.drawImage(top, 0, 0, scene.width, 69);
   const center = scene.width / 2;
-  ctx.save();
-  ctx.globalAlpha = .3;
-  ctx.drawImage(userBack, center - 310, -23, 330, 90);
-  ctx.restore();
+  if (partner.nameplate) {
+    // The native 564x74 plate is displayed at 2/3 scale behind the avatar.
+    // End it underneath the icon instead of exposing its square right edge.
+    ctx.save();
+    ctx.beginPath(); ctx.rect(center - 310, 0, 310, 69); ctx.clip();
+    ctx.drawImage(partner.nameplate, center - 310, 0, 376, 74 * 2 / 3);
+    ctx.restore();
+  } else {
+    ctx.save();
+    ctx.globalAlpha = .3;
+    ctx.drawImage(userBack, center - 310, -23, 330, 90);
+    ctx.restore();
+  }
   text(ctx, "结果", scene.contentLeft + 18, 28, 24, "#302c35");
-  text(ctx, partner.profile.user.name!, center - 58, 28, 28, "#28242b", { align: "right", width: 250, family: scoreFamily, outline: "#28242b", outlineWidth: .9 });
+  const palette = partner.nameplate ? nameplateColors[partner.profile.user.bannerId ?? ""] : undefined;
+  const nameColor = palette?.color ?? (partner.nameplate ? "#fff" : "#28242b");
+  text(ctx, partner.profile.user.name!, center - 58, 28, 28, nameColor, { align: "right", width: 250, family: scoreFamily,
+    outline: nameColor, outlineWidth: .9, shadow: palette ? { color: palette.shadow, x: .7, y: .7 } : undefined });
   ctx.drawImage(frame, center - 50, -20, 100, 100);
   contain(ctx, partner.avatar, center - 43, -13, 86, 86);
   // Current potential belongs on the avatar's native tier badge. The separate
   // diamond to its right represents a change, which the score API does not give.
-  ctx.drawImage(partner.badge, center, 10, 79.3, 79.3);
-  text(ctx, partner.profile.user.rating >= 0 ? partner.profile.user.rating.toFixed(3) : "—", center + 40, 53, 21, "#fff", { align: "center", family: numberFamily, outline: "#4b424d", outlineWidth: 1.3 });
+  // UserCell sizes the rating widget to 85px before its 2/3 top-bar scale,
+  // independently of the 119px source texture. Its decimal digits are smaller.
+  const badgeSize = 85 * 2 / 3, badgeCenter = center + 37.3;
+  ctx.drawImage(partner.badge, badgeCenter - badgeSize / 2, 28.5, badgeSize, badgeSize);
+  const potential = partner.profile.user.rating >= 0 ? partner.profile.user.rating.toFixed(3).split(".") : null;
+  if (potential) {
+    const large = `${potential[0]}.`, small = potential[1];
+    const largeSize = 34 * 2 / 3, smallSize = 24 * 2 / 3;
+    ctx.font = `${largeSize}px ${numberFamily}`;
+    const largeWidth = ctx.measureText(large).width;
+    ctx.font = `${smallSize}px ${numberFamily}`;
+    const start = badgeCenter - (largeWidth + ctx.measureText(small).width) / 2;
+    const options = { baseline: "alphabetic" as const, family: numberFamily, outline: "#51485c", outlineWidth: 3 };
+    text(ctx, large, start, 60, largeSize, "#fff", options);
+    text(ctx, small, start + largeWidth, 60, smallSize, "#fff", options);
+  } else {
+    text(ctx, "—", badgeCenter, 53, 20, "#fff", { align: "center", family: numberFamily, outline: "#51485c", outlineWidth: 3 });
+  }
 
   const blob = await deadline(new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("PNG 生成失败，请重试。")), "image/png");

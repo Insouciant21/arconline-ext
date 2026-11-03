@@ -1,7 +1,7 @@
 import type { Env } from "./environment";
 import { AppError } from "./errors";
 
-// Every media key is write-once: charts/ and characters/ are addressed by
+// Every media key is write-once: charts/, characters/ and banners/ are addressed by
 // Lowiro content hashes and potential/ by unique snapshot id, so retries only
 // re-upload identical bytes and caches may hold them for a year.
 const TTL = 31536000;
@@ -15,7 +15,7 @@ export async function serveMedia(env: Env, request: Request, background?: Backgr
   let key: string;
   try { key = decodeURIComponent(new URL(request.url).pathname.slice("/api/media/".length)); }
   catch { throw new AppError("无效的媒体路径。", 400, "INVALID_ASSET_KEY"); }
-  if (!key || key.includes("..") || key.startsWith("/") || key.includes("\\") || !/^(charts|characters|potential)\//.test(key))
+  if (!key || key.includes("..") || key.startsWith("/") || key.includes("\\") || !/^(charts|characters|potential|banners)\//.test(key))
     throw new AppError("无效的媒体路径。", 400, "INVALID_ASSET_KEY");
 
   const url = new URL(request.url);

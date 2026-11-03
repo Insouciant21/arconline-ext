@@ -57,11 +57,14 @@ export interface StoredUser {
   characterUncappedOverride?: boolean;
   avatarImageKey?: string;
   avatarImageUrl?: string;
+  bannerId?: string;
+  bannerResource?: string;
 }
 
 export interface ScoreExportProfile {
   user: StoredUser;
   characterAssetId: string;
+  bannerImageUrl?: string;
 }
 
 export interface ImageStats {

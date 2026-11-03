@@ -1,0 +1,170 @@
+{
+  "course_banner_1": {
+    "color": "#3d5765",
+    "shadow": "#ffffff"
+  },
+  "course_banner_10": {
+    "color": "#e1e6e5",
+    "shadow": "#860c3d"
+  },
+  "course_banner_11": {
+    "color": "#dedde4",
+    "shadow": "#931c36"
+  },
+  "course_banner_12": {
+    "color": "#ffffff",
+    "shadow": "#d59f78"
+  },
+  "course_banner_2": {
+    "color": "#38505c",
+    "shadow": "#ffffff"
+  },
+  "course_banner_3": {
+    "color": "#434f5a",
+    "shadow": "#f2f3f5"
+  },
+  "course_banner_4": {
+    "color": "#344961",
+    "shadow": "#f2f3f5"
+  },
+  "course_banner_5": {
+    "color": "#553e52",
+    "shadow": "#fbf1f6"
+  },
+  "course_banner_6": {
+    "color": "#553e52",
+    "shadow": "#fbf1f6"
+  },
+  "course_banner_7": {
+    "color": "#ffffff",
+    "shadow": "#5c4d74"
+  },
+  "course_banner_8": {
+    "color": "#ffffff",
+    "shadow": "#4b1a79"
+  },
+  "course_banner_9": {
+    "color": "#ffffff",
+    "shadow": "#6b4892"
+  },
+  "online_banner_2024_06": {
+    "color": "#ffffff",
+    "shadow": "#130931"
+  },
+  "online_banner_2024_07": {
+    "color": "#563547",
+    "shadow": "#fffefa"
+  },
+  "online_banner_2024_08": {
+    "color": "#ffffff",
+    "shadow": "#2a1e3d"
+  },
+  "online_banner_2024_09": {
+    "color": "#321411",
+    "shadow": "#f7f3f0"
+  },
+  "online_banner_2024_10": {
+    "color": "#ffffff",
+    "shadow": "#3d0106"
+  },
+  "online_banner_2024_11": {
+    "color": "#ffffff",
+    "shadow": "#000049"
+  },
+  "online_banner_2024_12": {
+    "color": "#e1e6e5",
+    "shadow": "#140c09"
+  },
+  "online_banner_2025_01": {
+    "color": "#ffffff",
+    "shadow": "#07182a"
+  },
+  "online_banner_2025_02": {
+    "color": "#241e40",
+    "shadow": "#ffffff"
+  },
+  "online_banner_2025_03": {
+    "color": "#fcf7ff",
+    "shadow": "#060424"
+  },
+  "online_banner_2025_04": {
+    "color": "#784752",
+    "shadow": "#f2f3f5"
+  },
+  "online_banner_2025_05": {
+    "color": "#623a51",
+    "shadow": "#ffffff"
+  },
+  "online_banner_2025_06": {
+    "color": "#191f61",
+    "shadow": "#e5f3f4"
+  },
+  "online_banner_2025_07": {
+    "color": "#ffffff",
+    "shadow": "#0e2a7f"
+  },
+  "online_banner_2025_08": {
+    "color": "#eff7f9",
+    "shadow": "#141e5b"
+  },
+  "online_banner_2025_09": {
+    "color": "#e1e6e5",
+    "shadow": "#432449"
+  },
+  "online_banner_2025_10": {
+    "color": "#fcf7ff",
+    "shadow": "#340000"
+  },
+  "online_banner_2025_11": {
+    "color": "#dbeff4",
+    "shadow": "#1d1c24"
+  },
+  "online_banner_2025_12": {
+    "color": "#f8f8fe",
+    "shadow": "#050818"
+  },
+  "online_banner_2026_01": {
+    "color": "#434f5a",
+    "shadow": "#f2f3f5"
+  },
+  "online_banner_2026_02": {
+    "color": "#ffffff",
+    "shadow": "#810020"
+  },
+  "online_banner_2026_03": {
+    "color": "#5c1826",
+    "shadow": "#ffdfce"
+  },
+  "online_banner_2026_04": {
+    "color": "#ffffff",
+    "shadow": "#5c4d74"
+  },
+  "online_banner_2026_05": {
+    "color": "#0b1405",
+    "shadow": "#f7f2f0"
+  },
+  "online_banner_2026_06": {
+    "color": "#ffffff",
+    "shadow": "#35040d"
+  },
+  "online_banner_2026_07": {
+    "color": "#101728",
+    "shadow": "#ffebff"
+  },
+  "online_banner_2026_08": {
+    "color": "#1c1a9d",
+    "shadow": "#ffffff"
+  },
+  "online_banner_2026_09": {
+    "color": "#52483e",
+    "shadow": "#fefdfa"
+  },
+  "online_banner_2026_10": {
+    "color": "#222e2f",
+    "shadow": "#ffffff"
+  },
+  "online_banner_2026_11": {
+    "color": "#ffffff",
+    "shadow": "#13161b"
+  }
+}

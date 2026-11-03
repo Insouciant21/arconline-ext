@@ -16,7 +16,7 @@ interface ApiEnvelope {
   message?: string;
 }
 
-type ImageKind = "potential" | "chart" | "character";
+type ImageKind = "potential" | "chart" | "character" | "banner";
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const ARCAEA_REQUEST_TIMEOUT_MS = 30_000;
@@ -66,6 +66,16 @@ export class ArcaeaClient {
       : undefined;
     const characterIcon = asOptionalString(activeCharacter?.icon);
     const joinDate = asOptionalInteger(raw.join_date);
+    const banners = (Array.isArray(raw.banners) ? raw.banners : []).map(asRecord)
+      .filter((banner): banner is { id: string; resource: string } =>
+        typeof banner.id === "string" && /^[a-z0-9_-]{1,80}$/.test(banner.id) &&
+        typeof banner.resource === "string" && /^[a-f0-9]{32}$/i.test(banner.resource));
+    // A hidden plate stays hidden. Without a custom choice, the game uses the
+    // highest unlocked course banner rather than the newest subscription gift.
+    const banner = raw.custom_banner === "hidden" ? undefined :
+      banners.find(banner => banner.id === raw.custom_banner) ??
+      banners.filter(banner => /^course_banner_\d+$/.test(banner.id))
+        .sort((a, b) => Number(b.id.slice(14)) - Number(a.id.slice(14)))[0];
     return {
       rating: normalizePotential(raw.rating),
       name: asOptionalString(raw.name || raw.display_name || raw.user_name),
@@ -76,6 +86,7 @@ export class ArcaeaClient {
       ...(characterIcon ? { characterIcon } : {}),
       ...(typeof activeCharacter?.is_uncapped === "boolean" ? { characterUncapped: activeCharacter.is_uncapped } : {}),
       ...(typeof activeCharacter?.is_uncapped_override === "boolean" ? { characterUncappedOverride: activeCharacter.is_uncapped_override } : {}),
+      ...(banner ? { bannerId: banner.id, bannerResource: banner.resource } : {}),
     };
   }
 
@@ -142,6 +153,13 @@ export class ArcaeaClient {
     return this.fetchImage(`${this.config.arcaeaAssetBase}/chr/${icon}.png`, "character");
   }
 
+  async getBannerImage(resource: string) {
+    if (!/^[a-f0-9]{32}$/i.test(resource)) {
+      throw new AppError("名片标识格式不合法。", 502, "ARCAEA_BANNER_INVALID");
+    }
+    return this.fetchImage(`${this.config.arcaeaAssetBase}/${resource}.png`, "banner");
+  }
+
   async fetchB50Snapshot() {
     const [user, best50] = await Promise.all([this.getUser(), this.getBest50()]);
     return { user, best50 };
@@ -202,7 +220,7 @@ export class ArcaeaClient {
           ? "ARCAEA_PTT_IMAGE_FAILED"
           : kind === "chart"
             ? "ARCAEA_CHART_IMAGE_FAILED"
-            : "ARCAEA_CHARACTER_IMAGE_FAILED",
+            : kind === "banner" ? "ARCAEA_BANNER_IMAGE_FAILED" : "ARCAEA_CHARACTER_IMAGE_FAILED",
       );
     }
     const contentLength = Number(response.headers.get("content-length") || 0);

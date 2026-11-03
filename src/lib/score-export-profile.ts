@@ -22,7 +22,8 @@ export async function getScoreExportProfile(env: Env): Promise<ScoreExportProfil
   if (!id) throw new AppError("当前搭档的立绘未收录，请更新结算素材。", 502, "CHARACTER_ART_UNAVAILABLE");
   if (!user.name) throw new AppError("未能取得当前用户名，请稍后重试。", 502, "EXPORT_PROFILE_INCOMPLETE");
 
-  if (user.characterIcon && /^[a-f0-9]{32}$/i.test(user.characterIcon)) {
+  async function cacheAvatar() {
+    if (!user.characterIcon || !/^[a-f0-9]{32}$/i.test(user.characterIcon)) return;
     const key = `characters/${user.characterIcon}.png`;
     try {
       if (!await env.ARCHIVE.head(key)) {
@@ -37,5 +38,19 @@ export async function getScoreExportProfile(env: Env): Promise<ScoreExportProfil
       console.warn("Export avatar could not be cached; using the game icon.");
     }
   }
-  return { user, characterAssetId: id };
+  async function cacheBanner() {
+    if (!user.bannerResource || !/^[a-f0-9]{32}$/i.test(user.bannerResource)) return;
+    const key = `banners/${user.bannerResource}.png`;
+    try {
+      if (!await env.ARCHIVE.head(key)) {
+        const image = await client.getBannerImage(user.bannerResource);
+        await putAsset(env, key, image.body, image.contentType, { kind: "banner" });
+      }
+      return `/api/media/${key}`;
+    } catch {
+      throw new AppError("名片加载失败，请稍后重试导出。", 502, "EXPORT_BANNER_UNAVAILABLE");
+    }
+  }
+  const [, bannerImageUrl] = await Promise.all([cacheAvatar(), cacheBanner()]);
+  return { user, characterAssetId: id, ...(bannerImageUrl ? { bannerImageUrl } : {}) };
 }
