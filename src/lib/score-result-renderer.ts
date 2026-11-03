@@ -20,8 +20,6 @@ import avatarFrame from "@/assets/score-result/avatar-frame.webp";
 import topBar from "@/assets/score-result/top-bar.webp";
 import bottomBar from "@/assets/score-result/bottom-bar.webp";
 import footerStrip from "@/assets/score-result/footer-strip.webp";
-import ratingNeutral from "@/assets/score-result/rating-neutral.webp";
-import potentialLabel from "@/assets/score-result/potential-label.webp";
 import difficultyPst from "@/assets/score-result/difficulty-pst.webp";
 import difficultyPrs from "@/assets/score-result/difficulty-prs.webp";
 import difficultyFtr from "@/assets/score-result/difficulty-ftr.webp";
@@ -44,6 +42,7 @@ const clears = { fail: clearFail, normal: clearNormal, full: clearFull, pure: cl
 const difficulties = { PST: difficultyPst, PRS: difficultyPrs, FTR: difficultyFtr, ETR: difficultyEtr, BYD: difficultyByd, INS: difficultyIns };
 // Vite emits URLs for every available partner; only the selected pair is fetched.
 const partners = import.meta.glob<ImageMetadata>("../assets/score-result/characters/*.webp", { eager: true, import: "default" });
+const potentialBadges = import.meta.glob<ImageMetadata>("../assets/score-result/potential-*.webp", { eager: true, import: "default" });
 const textFamily = '"Arcaea Result Text", "Arcaea Result CJK", sans-serif';
 const semiboldFamily = '"Arcaea Result Text Semibold", "Arcaea Result CJK", sans-serif';
 const scoreFamily = '"Arcaea Result Score", "Arcaea Result Text", sans-serif';
@@ -55,6 +54,11 @@ const images = new Map<string, Promise<HTMLImageElement>>();
 const scene = { width: 1562, height: 720, contentLeft: 141 };
 let fonts: Promise<void> | undefined;
 let profileRequest: Promise<ScoreExportProfile> | undefined;
+
+function potentialBadge(rating: number) {
+  const index = rating < 0 ? "off" : [3.5, 7, 10, 11, 12, 12.5, 13].filter(minimum => rating >= minimum).length;
+  return potentialBadges[`../assets/score-result/potential-${index}.webp`];
+}
 
 function loadProfile() {
   // Share concurrent exports, but refresh on the next export so partner changes
@@ -78,13 +82,14 @@ async function loadPartner() {
   const prefix = `../assets/score-result/characters/${profile.characterAssetId}`;
   const icon = partners[`${prefix}-icon.webp`];
   if (!icon) throw new Error("当前搭档的头像素材未收录，请更新后重试。");
-  const [illustration, avatar] = await Promise.all([
+  const [illustration, avatar, badge] = await Promise.all([
     loadImage(partners[`${prefix}.webp`].src),
     profile.user.avatarImageUrl
       ? loadImage(profile.user.avatarImageUrl, true).catch(() => loadImage(icon.src))
       : loadImage(icon.src),
+    loadImage(potentialBadge(profile.user.rating).src),
   ]);
-  return { profile, illustration, avatar };
+  return { profile, illustration, avatar, badge };
 }
 
 function deadline<T>(operation: Promise<T>, message: string): Promise<T> {
@@ -137,7 +142,7 @@ function loadImage(src: string, artwork = false) {
 
 function text(ctx: CanvasRenderingContext2D, value: string, x: number, y: number, size: number, color: string, options: {
   align?: CanvasTextAlign; width?: number; family?: string; minSize?: number;
-  outline?: string; outlineWidth?: number; shadow?: { color: string; x: number; y: number };
+  outline?: string; outlineWidth?: number; shadow?: { color: string; x: number; y: number; blur?: number };
 } = {}) {
   ctx.save();
   const family = options.family || textFamily;
@@ -159,9 +164,14 @@ function text(ctx: CanvasRenderingContext2D, value: string, x: number, y: number
     ctx.strokeText(value, x, y);
   }
   if (options.shadow) {
+    // Canvas shadows use device pixels, while the game's layout uses logical
+    // pixels. Keep their apparent weight consistent with the 2x export scale.
+    const transform = ctx.getTransform();
+    const scaleX = Math.hypot(transform.a, transform.b), scaleY = Math.hypot(transform.c, transform.d);
     ctx.shadowColor = options.shadow.color;
-    ctx.shadowOffsetX = options.shadow.x;
-    ctx.shadowOffsetY = options.shadow.y;
+    ctx.shadowOffsetX = options.shadow.x * scaleX;
+    ctx.shadowOffsetY = options.shadow.y * scaleY;
+    ctx.shadowBlur = (options.shadow.blur ?? 0) * (scaleX + scaleY) / 2;
   }
   ctx.fillText(value, x, y);
   ctx.restore();
@@ -221,13 +231,13 @@ function resultPanel(image: HTMLImageElement) {
 export async function renderScoreResult(score: SongScore) {
   const result = scoreResultData(score);
   const code = difficultyCode(score.difficulty, score.difficultyAlias) as keyof typeof difficulties;
-  const [bg, header, grade, clear, pure, far, lost, artwork, panel, difficulty, userBack, frame, top, bottom, footer, rating, potential, partner] = await Promise.all([
+  const [bg, header, grade, clear, pure, far, lost, artwork, panel, difficulty, userBack, frame, top, bottom, footer, partner] = await Promise.all([
     loadImage(background.src), loadImage(banner.src), loadImage(grades[result.grade].src), loadImage(clears[result.clear].src),
     loadImage(countPure.src), loadImage(countFar.src), loadImage(countLost.src),
     score.imageUrl ? loadImage(score.imageUrl, true) : Promise.resolve(null),
     loadImage(scorePanel.src), loadImage((difficulties[code] || difficultyFtr).src),
     loadImage(userPanel.src), loadImage(avatarFrame.src), loadImage(topBar.src), loadImage(bottomBar.src),
-    loadImage(footerStrip.src), loadImage(ratingNeutral.src), loadImage(potentialLabel.src), loadPartner(),
+    loadImage(footerStrip.src), loadPartner(),
     loadFonts(),
   ]);
   const canvas = document.createElement("canvas");
@@ -242,18 +252,19 @@ export async function renderScoreResult(score: SongScore) {
   ctx.save();
   ctx.translate(scene.contentLeft, 0);
 
-  text(ctx, result.title, 640, 103.5, 48, "#fff", { align: "center", width: 1100, minSize: 24, shadow: { color: "#141414", x: 3, y: 3 } });
-  text(ctx, score.artist || "Unknown artist", 640, 147.6, 28, "#fff", { align: "center", width: 1060, shadow: { color: "#141414", x: 3, y: 3 } });
+  const titleShadow = { color: "rgba(20, 14, 29, .6)", x: 1.2, y: 1.2, blur: .4 };
+  text(ctx, result.title, 640, 103.5, 48, "#fff", { align: "center", width: 1100, minSize: 24, shadow: titleShadow });
+  text(ctx, score.artist || "Unknown artist", 640, 147.6, 28, "#fff", { align: "center", width: 1060, shadow: titleShadow });
   ctx.drawImage(difficulty, 4.7, 191, 260.7, 73.3);
   text(ctx, result.level ?? code, 54, 228, result.level ? 34 : 20, "#fff", { align: "center", family: mediumNumberFamily, outline: code === "BYD" ? "#b5122e" : "#654c78", outlineWidth: 2 });
-  text(ctx, difficultyLabel(score.difficulty, score.difficultyAlias).toUpperCase(), 96, 216, 20, "#6f5270", { width: 170, family: semiboldFamily, outline: "#fff" });
+  text(ctx, difficultyLabel(score.difficulty, score.difficultyAlias).toUpperCase(), 96, 216, 20, "#5f5865", { width: 170, family: semiboldFamily, outline: "rgba(255,255,255,.65)", outlineWidth: .6 });
 
   if (artwork) {
     const scale = Math.max(375 / artwork.naturalWidth, 375 / artwork.naturalHeight);
     const width = artwork.naturalWidth * scale, height = artwork.naturalHeight * scale;
     ctx.save();
-    ctx.shadowColor = "rgba(35, 22, 51, .45)";
-    ctx.shadowBlur = 14; ctx.shadowOffsetX = 5; ctx.shadowOffsetY = 8;
+    ctx.shadowColor = "rgba(35, 22, 51, .25)";
+    ctx.shadowBlur = 10; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4;
     ctx.fillStyle = "#231b31";
     ctx.fillRect(31.3, 268.1, 375, 375);
     ctx.restore();
@@ -267,7 +278,7 @@ export async function renderScoreResult(score: SongScore) {
     text(ctx, "NO ART", 218.8, 455.6, 30, "#83708e", { align: "center" });
   }
 
-  contain(ctx, clear, 346.3, 198, 587.3, 54);
+  contain(ctx, clear, 362.5, 199.5, 555, 51);
   ctx.restore();
   // Partners cover the title/clear banner as on the game screen. The score and
   // judgements remain above the illustration, keeping exported values legible.
@@ -275,31 +286,32 @@ export async function renderScoreResult(score: SongScore) {
   ctx.save();
   ctx.translate(scene.contentLeft, 0);
   ctx.drawImage(resultPanel(panel), 437.86, 251.13, panel.naturalWidth * 2 / 3, panel.naturalHeight * 2 / 3);
-  text(ctx, result.scoreText, 640, 313, 60, "#fff", { align: "center", family: scoreFamily, shadow: { color: "#252525", x: 3, y: 3 } });
-  text(ctx, "定数", 469, 376, 16, "#e4daed");
-  text(ctx, result.constant?.toFixed(1) ?? "—", 567, 376, 23, "#fff", { align: "right", family: numberFamily });
-  text(ctx, "单曲 PTT", 615, 376, 16, "#e4daed");
-  text(ctx, result.rating?.toFixed(3) ?? "—", 858, 376, 23, "#fff", { align: "right", family: numberFamily });
+  text(ctx, result.scoreText, 640, 313, 57, "#fff", { align: "center", family: scoreFamily, outline: "rgba(255,255,255,.9)", outlineWidth: .45, shadow: { color: "rgba(22,17,30,.5)", x: 1.2, y: 1.2, blur: .3 } });
+  text(ctx, "定数", 469, 376, 16, "#ded7e4");
+  text(ctx, result.constant?.toFixed(1) ?? "—", 567, 376, 27, "#fff", { align: "right", family: scoreFamily });
+  text(ctx, "单曲 PTT", 615, 376, 16, "#ded7e4");
+  text(ctx, result.rating?.toFixed(3) ?? "—", 858, 376, 27, "#fff", { align: "right", family: scoreFamily });
   contain(ctx, grade, 560, 402.5, 160, 78);
 
   [
-    { image: pure, label: "PURE", value: score.perfectCount.toLocaleString("en-US") },
-    { image: far, label: "FAR", value: score.nearCount.toLocaleString("en-US") },
-    { image: lost, label: "LOST", value: score.missCount.toLocaleString("en-US") },
+    { image: pure, label: "PURE", value: String(score.perfectCount) },
+    { image: far, label: "FAR", value: String(score.nearCount) },
+    { image: lost, label: "LOST", value: String(score.missCount) },
   ].forEach(({ image, label, value }, index) => {
     const y = 519 + index * 37;
     ctx.drawImage(image, 540, y, 166, 30);
-    const outline = ["#7e74a2", "#a67259", "#957885"][index];
-    const shadow = { color: ["#9e94c2", "#c69279", "#b598a5"][index], x: 1, y: 1 };
-    text(ctx, label, 629, y + 15, 20, "#fff", { align: "right", outline, shadow });
-    text(ctx, value, 680, y + 15, 20, "#fff", { align: "center", width: 75, family: semiboldFamily, outline, shadow });
-    if (index === 0) text(ctx, `(+${score.shinyPerfectCount.toLocaleString("en-US")})`, 730, y + 15, 20, "#8c839e", { family: semiboldFamily, outline: "#fff", shadow: { color: "#b7b7b7", x: 1, y: 1 } });
+    const outline = ["rgba(126,116,162,.9)", "rgba(166,114,89,.9)", "rgba(149,120,133,.9)"][index];
+    const shadow = { color: "rgba(62,44,74,.3)", x: .4, y: .5, blur: .3 };
+    text(ctx, label, 629, y + 15, 19, "#fff", { align: "right", outline, outlineWidth: 1.1, shadow });
+    text(ctx, value, 680, y + 15, 20, "#fff", { align: "center", width: 75, family: semiboldFamily, outline, outlineWidth: 1.1, shadow });
+    if (index === 0) text(ctx, `(+${score.shinyPerfectCount})`, 730, y + 15, 18, "#d8cbe3", { family: semiboldFamily, outline: "rgba(90,73,103,.5)", outlineWidth: .8 });
   });
   if (score.clearType === 4 || score.clearType === 5) {
     text(ctx, clearTypeLabel(score.clearType).toUpperCase(), 640, 641, 15, "#76637f", { align: "center" });
   }
   ctx.drawImage(bottom, 528.3, 654, 223.3, 66.7);
-  text(ctx, "ArcOnline Extension", 640, 683, 14, "#675574", { align: "center", width: 143, minSize: 12 });
+  text(ctx, "ArcOnline", 640, 671, 17, "#463c55", { align: "center", width: 143, family: semiboldFamily });
+  text(ctx, "Extension", 640, 689, 17, "#463c55", { align: "center", width: 143, family: semiboldFamily });
   ctx.restore();
   text(ctx, result.dateText, 28, 686, 16, "#675574");
 
@@ -309,13 +321,14 @@ export async function renderScoreResult(score: SongScore) {
   ctx.globalAlpha = .3;
   ctx.drawImage(userBack, center - 310, -23, 330, 90);
   ctx.restore();
-  text(ctx, "结果", scene.contentLeft + 18, 28, 24, "#351827");
-  text(ctx, partner.profile.user.name!, center - 58, 28, 26, "#28242b", { align: "right", width: 250, family: scoreFamily });
+  text(ctx, "结果", scene.contentLeft + 18, 28, 24, "#302c35");
+  text(ctx, partner.profile.user.name!, center - 58, 28, 28, "#28242b", { align: "right", width: 250, family: scoreFamily, outline: "#28242b", outlineWidth: .9 });
   ctx.drawImage(frame, center - 50, -20, 100, 100);
   contain(ctx, partner.avatar, center - 43, -13, 86, 86);
-  ctx.drawImage(rating, center + 59, -34, 118, 118);
-  ctx.drawImage(potential, center + 72, 7, 93, 20);
-  text(ctx, partner.profile.user.rating.toFixed(3), center + 118, 52, 22, "#fff", { align: "center", family: numberFamily });
+  // Current potential belongs on the avatar's native tier badge. The separate
+  // diamond to its right represents a change, which the score API does not give.
+  ctx.drawImage(partner.badge, center, 10, 79.3, 79.3);
+  text(ctx, partner.profile.user.rating >= 0 ? partner.profile.user.rating.toFixed(3) : "—", center + 40, 53, 21, "#fff", { align: "center", family: numberFamily, outline: "#4b424d", outlineWidth: 1.3 });
 
   const blob = await deadline(new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("PNG 生成失败，请重试。")), "image/png");

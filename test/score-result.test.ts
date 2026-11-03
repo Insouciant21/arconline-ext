@@ -32,7 +32,7 @@ describe("score result export data", () => {
     expect(result.constant).toBe(11.2);
     expect(result.level).toBe("11");
     expect(result.rating).toBeCloseTo(13.20007, 6);
-    expect(result.scoreText).toBe("09’960’014");
+    expect(result.scoreText).toBe("09'960'014");
     expect(result.dateText).toBe("2026/04/26 21:55");
     expect(result.filename).toBe("aegleseeker-FTR-20260426-2155.png");
   });

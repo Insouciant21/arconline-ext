@@ -137,7 +137,8 @@ try {
   expect(exportAssets).toEqual([]);
   expect(profileRequests).toBe(0);
   const referenceText = await exportResult('aegleseeker');
-  expect(referenceText.map(item => item.value)).toEqual(expect.arrayContaining(['Aegleseeker', '09’960’014', '定数', '11.2', '单曲 PTT', '13.200', '1,559', '(+1,469)', '11', 'Test Player · 咲弥', '12.939']));
+  expect(referenceText.map(item => item.value)).toEqual(expect.arrayContaining(['Aegleseeker', "09'960'014", '定数', '11.2', '单曲 PTT', '13.200', '1559', '(+1469)', '11', 'Test Player · 咲弥', '12.939', 'ArcOnline', 'Extension']));
+  expect(referenceText.map(item => item.value)).not.toContain('ArcOnline Extension');
   expect(referenceText.map(item => item.value).join(' ')).not.toMatch(/HIGH SCORE|MAX RECALL|FRAGMENT/);
   expect(exportAssets.length).toBeGreaterThan(0);
   expect(profileRequests).toBe(1);

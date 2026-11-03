@@ -44,7 +44,7 @@ export function scoreResultData(score: SongScore) {
     grade: resultGrade(score.score),
     // Grade and clear status are separate: a PURE MEMORY still has an EX+ grade.
     clear,
-    scoreText: String(score.score).padStart(8, "0").replace(/\B(?=(\d{3})+(?!\d))/g, "’"),
+    scoreText: String(score.score).padStart(8, "0").replace(/\B(?=(\d{3})+(?!\d))/g, "'"),
     dateText,
     filename: `${safeId}-${difficultyCode(score.difficulty, score.difficultyAlias)}-${filenameDate}.png`,
   };
