@@ -1,31 +1,4 @@
-import background from "@/assets/score-result/background.webp";
-import banner from "@/assets/score-result/banner.webp";
-import gradeD from "@/assets/score-result/grade-d.webp";
-import gradeC from "@/assets/score-result/grade-c.webp";
-import gradeB from "@/assets/score-result/grade-b.webp";
-import gradeA from "@/assets/score-result/grade-a.webp";
-import gradeAA from "@/assets/score-result/grade-aa.webp";
-import gradeEX from "@/assets/score-result/grade-ex.webp";
-import gradeEXPlus from "@/assets/score-result/grade-explus.webp";
-import clearFail from "@/assets/score-result/clear-fail.webp";
-import clearNormal from "@/assets/score-result/clear-normal.webp";
-import clearFull from "@/assets/score-result/clear-full.webp";
-import clearPure from "@/assets/score-result/clear-pure.webp";
-import countPure from "@/assets/score-result/count-pure.webp";
-import countFar from "@/assets/score-result/count-far.webp";
-import countLost from "@/assets/score-result/count-lost.webp";
-import scorePanel from "@/assets/score-result/score-panel.webp";
-import userPanel from "@/assets/score-result/user-panel.webp";
-import avatarFrame from "@/assets/score-result/avatar-frame.webp";
-import topBar from "@/assets/score-result/top-bar.webp";
-import bottomBar from "@/assets/score-result/bottom-bar.webp";
-import footerStrip from "@/assets/score-result/footer-strip.webp";
-import difficultyPst from "@/assets/score-result/difficulty-pst.webp";
-import difficultyPrs from "@/assets/score-result/difficulty-prs.webp";
-import difficultyFtr from "@/assets/score-result/difficulty-ftr.webp";
-import difficultyEtr from "@/assets/score-result/difficulty-etr.webp";
-import difficultyByd from "@/assets/score-result/difficulty-byd.webp";
-import difficultyIns from "@/assets/score-result/difficulty-ins.webp";
+import uiPackUrl from "@/assets/score-result/ui-pack.json?url";
 import textFont from "@/assets/score-result/result-text.woff2?url";
 import textSemiboldFont from "@/assets/score-result/result-text-semibold.woff2?url";
 import scoreFont from "@/assets/score-result/result-score.woff2?url";
@@ -38,9 +11,9 @@ import { clearTypeLabel, difficultyCode, difficultyLabel } from "./utils";
 import { scoreResultData } from "./score-result";
 import bannerPalettes from "./score-result-banners.json";
 
-const grades = { d: gradeD, c: gradeC, b: gradeB, a: gradeA, aa: gradeAA, ex: gradeEX, explus: gradeEXPlus };
-const clears = { fail: clearFail, normal: clearNormal, full: clearFull, pure: clearPure };
-const difficulties = { PST: difficultyPst, PRS: difficultyPrs, FTR: difficultyFtr, ETR: difficultyEtr, BYD: difficultyByd, INS: difficultyIns };
+const grades = { d: "grade-d.webp", c: "grade-c.webp", b: "grade-b.webp", a: "grade-a.webp", aa: "grade-aa.webp", ex: "grade-ex.webp", explus: "grade-explus.webp" };
+const clears = { fail: "clear-fail.webp", normal: "clear-normal.webp", full: "clear-full.webp", pure: "clear-pure.webp" };
+const difficulties = { PST: "difficulty-pst.webp", PRS: "difficulty-prs.webp", FTR: "difficulty-ftr.webp", ETR: "difficulty-etr.webp", BYD: "difficulty-byd.webp", INS: "difficulty-ins.webp" };
 // Vite emits URLs for every available partner; only the selected pair is fetched.
 const partners = import.meta.glob<ImageMetadata>("../assets/score-result/characters/*.webp", { eager: true, import: "default" });
 const potentialBadges = import.meta.glob<ImageMetadata>("../assets/score-result/potential-*.webp", { eager: true, import: "default" });
@@ -56,33 +29,20 @@ const images = new Map<string, Promise<HTMLImageElement>>();
 // centered inside a 1562x720 scene, rather than stretching the result columns.
 const scene = { width: 1562, height: 720, contentLeft: 141 };
 let fonts: Promise<void> | undefined;
-let profileRequest: Promise<ScoreExportProfile> | undefined;
+let uiPack: Promise<Record<string, string>> | undefined;
+let warmAssets: Promise<unknown> | undefined;
+const panels = new WeakMap<HTMLImageElement, HTMLCanvasElement>();
+const partnerAnchors = new WeakMap<HTMLImageElement, number>();
 
 function potentialBadge(rating: number) {
   const index = rating < 0 ? "off" : [3.5, 7, 10, 11, 12, 12.5, 13].filter(minimum => rating >= minimum).length;
   return potentialBadges[`../assets/score-result/potential-${index}.webp`];
 }
 
-function loadProfile() {
-  // Share concurrent exports, but refresh on the next export so partner changes
-  // are reflected without requiring another B50 snapshot or a page reload.
-  if (!profileRequest) {
-    profileRequest = (async () => {
-      const response = await fetch("/api/score-export/profile", { cache: "no-store", signal: AbortSignal.timeout(45_000) });
-      const payload = await response.json() as Partial<ScoreExportProfile> & { error?: string };
-      if (!response.ok) throw new Error(payload.error || "用户信息加载失败，请重试导出。");
-      if (!payload.user?.name || !partners[`../assets/score-result/characters/${payload.characterAssetId}.webp`]) {
-        throw new Error("当前搭档的结算素材不完整，请更新后重试。");
-      }
-      return payload as ScoreExportProfile;
-    })().finally(() => { profileRequest = undefined; });
-  }
-  return profileRequest;
-}
-
-async function loadPartner() {
-  const profile = await loadProfile();
+async function loadPartner(profileRequest: ScoreExportProfile | Promise<ScoreExportProfile>) {
+  const profile = await profileRequest;
   const prefix = `../assets/score-result/characters/${profile.characterAssetId}`;
+  if (!partners[`${prefix}.webp`]) throw new Error("当前搭档的结算素材不完整，请更新后重试。");
   const icon = partners[`${prefix}-icon.webp`];
   if (!icon) throw new Error("当前搭档的头像素材未收录，请更新后重试。");
   const [illustration, avatar, badge, nameplate] = await Promise.all([
@@ -120,6 +80,36 @@ function loadFonts() {
   return fonts;
 }
 
+function loadNativeImage(name: string) {
+  const key = `native:${name}`;
+  const cached = images.get(key);
+  if (cached) return cached;
+  if (!uiPack) {
+    uiPack = fetch(uiPackUrl, { signal: AbortSignal.timeout(20_000) }).then(async response => {
+      if (!response.ok) throw new Error("结算素材加载失败，请重试导出。");
+      return response.json() as Promise<Record<string, string>>;
+    }).catch(error => { uiPack = undefined; throw error; });
+  }
+  const operation = uiPack.then(pack => {
+    const src = pack[name];
+    if (!src?.startsWith("data:image/webp;base64,")) throw new Error("结算素材不完整，请重试导出。");
+    return decodeImage(src);
+  });
+  images.set(key, operation);
+  void operation.catch(() => { if (images.get(key) === operation) images.delete(key); });
+  return operation;
+}
+
+export function preloadScoreResultAssets() {
+  if (!warmAssets) {
+    warmAssets = Promise.all([
+      ...["background", "banner", "count-pure", "count-far", "count-lost", "score-panel", "user-panel", "avatar-frame", "top-bar", "bottom-bar", "footer-strip"].map(name => loadNativeImage(`${name}.webp`)),
+      loadFonts(),
+    ]).catch(error => { warmAssets = undefined; throw error; });
+  }
+  return warmAssets;
+}
+
 function loadImage(src: string, artwork = false) {
   const url = new URL(src, window.location.href);
   // Artwork uses the existing authenticated media route. Never taint the canvas
@@ -127,7 +117,16 @@ function loadImage(src: string, artwork = false) {
   if (url.origin !== window.location.origin) return Promise.reject(new Error("请使用本站曲绘地址后再导出。"));
   const cached = !artwork && images.get(url.href);
   if (cached) return cached;
-  const operation = new Promise<HTMLImageElement>((resolve, reject) => {
+  const operation = decodeImage(url.href, artwork);
+  if (!artwork) {
+    images.set(url.href, operation);
+    void operation.catch(() => { if (images.get(url.href) === operation) images.delete(url.href); });
+  }
+  return operation;
+}
+
+function decodeImage(src: string, artwork = false) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
     const message = artwork ? "曲绘加载失败，请确认登录状态后重试导出。" : "结算素材加载失败，请重试导出。";
     const timer = window.setTimeout(() => { clean(); image.src = ""; reject(new Error(message)); }, 20_000);
@@ -135,13 +134,8 @@ function loadImage(src: string, artwork = false) {
     image.onload = () => { clean(); resolve(image); };
     image.onerror = () => { clean(); reject(new Error(message)); };
     image.decoding = "async";
-    image.src = url.href;
+    image.src = src;
   });
-  if (!artwork) {
-    images.set(url.href, operation);
-    operation.catch(() => images.delete(url.href));
-  }
-  return operation;
 }
 
 function text(ctx: CanvasRenderingContext2D, value: string, x: number, y: number, size: number, color: string, options: {
@@ -188,34 +182,41 @@ function contain(ctx: CanvasRenderingContext2D, image: HTMLImageElement, x: numb
 }
 
 function drawPartner(ctx: CanvasRenderingContext2D, image: HTMLImageElement) {
-  // The game crops a large illustration below the viewport. Locate the upper
-  // opaque area so differently posed partners keep their head in the right column.
-  const sample = document.createElement("canvas");
-  sample.width = 64; sample.height = 64;
-  const sampleCtx = sample.getContext("2d");
-  if (!sampleCtx) throw new Error("浏览器无法处理搭档立绘，请重试。");
-  sampleCtx.drawImage(image, 0, 0, 64, 64);
-  const rgba = sampleCtx.getImageData(0, 0, 64, 64).data;
-  let first = 0;
-  for (; first < 64; first++) {
-    let count = 0;
-    for (let x = 0; x < 64; x++) if (rgba[(first * 64 + x) * 4 + 3] > 192) count++;
-    if (count >= 4) break;
-  }
-  let weight = 0, weightedX = 0;
-  for (let y = first; y < Math.min(first + 8, 64); y++) {
-    for (let x = 0; x < 64; x++) {
-      const alpha = rgba[(y * 64 + x) * 4 + 3];
-      if (alpha > 192) { weight += alpha; weightedX += (x + .5) * alpha; }
+  let anchor = partnerAnchors.get(image);
+  if (anchor === undefined) {
+    // The game crops a large illustration below the viewport. Locate the upper
+    // opaque area so differently posed partners keep their head in the right column.
+    const sample = document.createElement("canvas");
+    sample.width = 64; sample.height = 64;
+    const sampleCtx = sample.getContext("2d");
+    if (!sampleCtx) throw new Error("浏览器无法处理搭档立绘，请重试。");
+    sampleCtx.drawImage(image, 0, 0, 64, 64);
+    const rgba = sampleCtx.getImageData(0, 0, 64, 64).data;
+    let first = 0;
+    for (; first < 64; first++) {
+      let count = 0;
+      for (let x = 0; x < 64; x++) if (rgba[(first * 64 + x) * 4 + 3] > 192) count++;
+      if (count >= 4) break;
     }
+    let weight = 0, weightedX = 0;
+    for (let y = first; y < Math.min(first + 8, 64); y++) {
+      for (let x = 0; x < 64; x++) {
+        const alpha = rgba[(y * 64 + x) * 4 + 3];
+        if (alpha > 192) { weight += alpha; weightedX += (x + .5) * alpha; }
+      }
+    }
+    anchor = weight ? weightedX / weight / 64 : .5;
+    partnerAnchors.set(image, anchor);
+    sample.width = sample.height = 0;
   }
-  const anchor = weight ? weightedX / weight / 64 : .5;
   const scale = 1200 / Math.max(image.naturalWidth, image.naturalHeight);
   const width = image.naturalWidth * scale, height = image.naturalHeight * scale;
   ctx.drawImage(image, scene.width / 2 + 320 - anchor * width, 12, width, height);
 }
 
 function resultPanel(image: HTMLImageElement) {
+  const cached = panels.get(image);
+  if (cached) return cached;
   const canvas = document.createElement("canvas");
   canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
   const ctx = canvas.getContext("2d");
@@ -229,19 +230,20 @@ function resultPanel(image: HTMLImageElement) {
   ctx.globalCompositeOperation = "copy";
   ctx.drawImage(image, 49, 161, 164, 8, 49, 167, 164, 34);
   ctx.restore();
+  panels.set(image, canvas);
   return canvas;
 }
 
-export async function renderScoreResult(score: Best50Score | SongScore) {
+export async function renderScoreResult(score: Best50Score | SongScore, currentProfile: ScoreExportProfile | Promise<ScoreExportProfile>) {
   const result = scoreResultData(score);
   const code = difficultyCode(score.difficulty, score.difficultyAlias) as keyof typeof difficulties;
   const [bg, header, grade, clear, pure, far, lost, artwork, panel, difficulty, userBack, frame, top, bottom, footer, partner] = await Promise.all([
-    loadImage(background.src), loadImage(banner.src), loadImage(grades[result.grade].src), loadImage(clears[result.clear].src),
-    loadImage(countPure.src), loadImage(countFar.src), loadImage(countLost.src),
+    loadNativeImage("background.webp"), loadNativeImage("banner.webp"), loadNativeImage(grades[result.grade]), loadNativeImage(clears[result.clear]),
+    loadNativeImage("count-pure.webp"), loadNativeImage("count-far.webp"), loadNativeImage("count-lost.webp"),
     score.imageUrl ? loadImage(score.imageUrl, true) : Promise.resolve(null),
-    loadImage(scorePanel.src), loadImage((difficulties[code] || difficultyFtr).src),
-    loadImage(userPanel.src), loadImage(avatarFrame.src), loadImage(topBar.src), loadImage(bottomBar.src),
-    loadImage(footerStrip.src), loadPartner(),
+    loadNativeImage("score-panel.webp"), loadNativeImage(difficulties[code] || difficulties.FTR),
+    loadNativeImage("user-panel.webp"), loadNativeImage("avatar-frame.webp"), loadNativeImage("top-bar.webp"), loadNativeImage("bottom-bar.webp"),
+    loadNativeImage("footer-strip.webp"), loadPartner(currentProfile),
     loadFonts(),
   ]);
   const canvas = document.createElement("canvas");
@@ -362,14 +364,18 @@ export async function renderScoreResult(score: Best50Score | SongScore) {
     text(ctx, "—", badgeCenter, 53, 20, "#fff", { align: "center", family: numberFamily, outline: "#51485c", outlineWidth: 3 });
   }
 
-  const blob = await deadline(new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("PNG 生成失败，请重试。")), "image/png");
-  }), "PNG 生成超时，请重试。");
-  return { blob, filename: result.filename };
+  try {
+    const blob = await deadline(new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("PNG 生成失败，请重试。")), "image/png");
+    }), "PNG 生成超时，请重试。");
+    return { blob, filename: result.filename };
+  } finally {
+    canvas.width = canvas.height = 0;
+  }
 }
 
-export async function downloadScoreResult(score: Best50Score | SongScore) {
-  const { blob, filename } = await renderScoreResult(score);
+export async function downloadScoreResult(score: Best50Score | SongScore, currentProfile: ScoreExportProfile | Promise<ScoreExportProfile>) {
+  const { blob, filename } = await renderScoreResult(score, currentProfile);
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url; link.download = filename;

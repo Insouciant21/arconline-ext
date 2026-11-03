@@ -380,6 +380,55 @@ describe("score export profiles", () => {
     expect(await env.ARCHIVE.head(`characters/${snapshot.user.characterIcon}.png`)).not.toBeNull();
   });
 
+  it("reuses an export login while reading the latest user on every export", async () => {
+    const snapshot = uncachedFixture();
+    const client = mockLowiro(snapshot);
+    const cookie = await login();
+    expect((await api(env, request("/api/score-export/profile", "GET", cookie))).status).toBe(200);
+    snapshot.user.name = "Changed Player";
+    snapshot.user.rating = 13;
+    snapshot.user.characterId = 23;
+    const response = await api(env, request("/api/score-export/profile", "GET", cookie));
+    expect(await response.json()).toMatchObject({ characterAssetId: "23", user: { name: "Changed Player", rating: 13 } });
+    expect(ArcaeaClient.login).toHaveBeenCalledTimes(1);
+    expect(client.getUser).toHaveBeenCalledTimes(2);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("renews the export login after five minutes and after credential changes", async () => {
+    const client = mockLowiro(uncachedFixture());
+    const cookie = await login();
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    for (const time of [now, now + 299_999, now + 300_001]) {
+      clock.mockReturnValue(time);
+      expect((await api(env, request("/api/score-export/profile", "GET", cookie))).status).toBe(200);
+    }
+    expect(ArcaeaClient.login).toHaveBeenCalledTimes(2);
+    env.PASSWD = "changed";
+    expect((await api(env, request("/api/score-export/profile", "GET", cookie))).status).toBe(200);
+    expect(ArcaeaClient.login).toHaveBeenCalledTimes(3);
+    expect(client.getUser).toHaveBeenCalledTimes(4);
+  });
+
+  it("relogs once when a reused export session expires, without caching a failed login", async () => {
+    const client = mockLowiro(uncachedFixture());
+    const cookie = await login();
+    expect((await api(env, request("/api/score-export/profile", "GET", cookie))).status).toBe(200);
+    client.getUser.mockRejectedValueOnce(new Error("Expired upstream session"));
+    expect((await api(env, request("/api/score-export/profile", "GET", cookie))).status).toBe(200);
+    expect(ArcaeaClient.login).toHaveBeenCalledTimes(2);
+    client.getUser.mockResolvedValueOnce({ rating: 0 } as B50Snapshot["user"]);
+    expect((await api(env, request("/api/score-export/profile", "GET", cookie))).status).toBe(200);
+    expect(ArcaeaClient.login).toHaveBeenCalledTimes(3);
+    vi.mocked(ArcaeaClient.login).mockRejectedValueOnce(new Error("Temporary login failure"));
+    env.PASSWD = "changed";
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect((await api(env, request("/api/score-export/profile", "GET", cookie))).status).toBe(500);
+    expect((await api(env, request("/api/score-export/profile", "GET", cookie))).status).toBe(200);
+    expect(ArcaeaClient.login).toHaveBeenCalledTimes(5);
+  });
+
   it("selects the equipped banner, honors hidden plates and defaults to the highest course", async () => {
     const banners = [
       { id: "course_banner_2", resource: "2".repeat(32) },

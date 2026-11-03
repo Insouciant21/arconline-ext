@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 import type { Best50Score, SongScore } from "@/lib/types";
+import { exportScoreResult, prepareScoreResult } from "@/lib/score-export-client";
 
 export function ScoreExportButton({ score }: { score: Best50Score | SongScore }) {
   const active = useRef(false);
@@ -13,8 +14,7 @@ export function ScoreExportButton({ score }: { score: Best50Score | SongScore })
     setBusy(true);
     setError(null);
     try {
-      const { downloadScoreResult } = await import("@/lib/score-result-renderer");
-      await downloadScoreResult(score);
+      await exportScoreResult(score);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "导出失败，请重试。");
     } finally {
@@ -24,7 +24,7 @@ export function ScoreExportButton({ score }: { score: Best50Score | SongScore })
   }
 
   return <>
-    <button type="button" className="score-export-button" disabled={busy} aria-busy={busy} onClick={exportScore} title="导出成绩结算图（PNG）">
+    <button type="button" className="score-export-button" disabled={busy} aria-busy={busy} onPointerEnter={prepareScoreResult} onFocus={prepareScoreResult} onPointerDown={prepareScoreResult} onClick={exportScore} title="导出成绩结算图（PNG）">
       {busy ? <Loader2 size={12} className="spin" aria-hidden="true" /> : <Download size={12} aria-hidden="true" />}
       {busy ? "生成中…" : "导出"}
     </button>

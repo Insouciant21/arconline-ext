@@ -23,9 +23,15 @@ try {
   const exportFonts = [];
   const partnerAssets = [];
   const nameplateAssets = [];
+  let failPack = true, packRequests = 0;
+  await page.route(/\/ui-pack(?:\.[^/?]+)?\.json(?:\?.*)?$/, route => {
+    if (route.request().resourceType() !== 'fetch') return route.continue();
+    packRequests++;
+    return failPack ? route.fulfill({ status: 503, body: 'Temporary asset failure' }) : route.continue();
+  });
   page.on('pageerror', error => errors.push(error.message));
   page.on('request', request => {
-    if (/result-(text|score|cjk|number).*woff2|score-result\/|background\..*webp/.test(request.url())) exportAssets.push(request.url());
+    if (/result-(text|score|cjk|number).*woff2|score-result\/|background\..*webp|ui-pack.*json/.test(request.url())) exportAssets.push(request.url());
     if (request.resourceType() === 'font' && /result-(text|score|cjk|number).*woff2/.test(request.url())) exportFonts.push(request.url());
     if (request.resourceType() === 'image' && /\/(?:23u?|23u?-icon)(?:\.[^/]+)?\.webp/.test(request.url())) partnerAssets.push(request.url());
     if (request.url().includes('/api/media/banners/')) nameplateAssets.push(request.url());
@@ -145,6 +151,14 @@ try {
   expect(exportAssets).toEqual([]);
   expect(profileRequests).toBe(0);
   expect(nameplateAssets).toEqual([]);
+  // Intent warms public assets without a profile request. A failed preload must
+  // remain retryable, and later exports must reuse the successful asset pack.
+  const packFailure = page.waitForResponse(response => response.status() === 503 && response.url().includes('ui-pack'));
+  await page.getByRole('button', { name: '导出', exact: true }).hover();
+  await packFailure;
+  expect(profileRequests).toBe(0);
+  expect(packRequests).toBe(1);
+  failPack = false;
   const referenceText = await exportResult('aegleseeker');
   expect(referenceText.map(item => item.value)).toEqual(expect.arrayContaining(['Aegleseeker', "09'960'014", '定数', '11.2', '单曲 PTT', '13.200', '1559', '(+1469)', '11', 'Test Player · 咲弥', '12.', '939', 'ArcOnline', 'Extension']));
   expect(Number.parseFloat(referenceText.find(item => item.value === '939').font)).toBeLessThan(Number.parseFloat(referenceText.find(item => item.value === '12.').font));
@@ -152,6 +166,7 @@ try {
   expect(referenceText.map(item => item.value).join(' ')).not.toMatch(/HIGH SCORE|MAX RECALL|FRAGMENT/);
   expect(exportAssets.length).toBeGreaterThan(0);
   expect(profileRequests).toBe(1);
+  expect(packRequests).toBe(2);
   expect(nameplateAssets).toHaveLength(1);
   expect(nameplateAssets[0]).toContain('/equipped.png');
   expect(partnerAssets.some(url => /\/23u(?:\.[^/]+)?\.webp/.test(url))).toBe(true);
@@ -171,6 +186,7 @@ try {
   const insText = await exportResult('inscribed');
   expect(insText.map(item => item.value)).toEqual(expect.arrayContaining(['11', 'INSCRIBED', '11.4', '13.400']));
   expect(profileRequests).toBe(2);
+  expect(packRequests).toBe(2);
   expect(nameplateAssets.at(-1)).toContain('/changed.png');
   expect(partnerAssets.some(url => /\/23(?:\.[^/]+)?\.webp/.test(url))).toBe(true);
   expect(insText.find(item => item.value.includes('Extradimensional')).width).toBeLessThanOrEqual(1150);

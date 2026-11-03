@@ -9,7 +9,11 @@ const browser=await chromium.launch({headless:true});
 try {
  const context=await browser.newContext();const page=await context.newPage();const errors=[];
  const exportAssets=[];
- page.on('request',request=>{if(/score-result-renderer|result-(text|score|cjk|number).*woff2|\/api\/score-export\/profile/.test(request.url()))exportAssets.push(request.url());});
+ let exportProfileRequests=0;
+ page.on('request',request=>{
+  if(/score-result-renderer|result-(text|score|cjk|number).*woff2|ui-pack.*json|\/api\/score-export\/profile/.test(request.url()))exportAssets.push(request.url());
+  if(request.url().includes('/api/score-export/profile'))exportProfileRequests++;
+ });
  // Local D1 fixtures can reference covers that are only present in production R2.
  await page.route('**/api/media/charts/**',route=>route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><path fill="#6255b8" d="M0 0h512v512H0z"/></svg>'}));
  page.on('pageerror',error=>errors.push(error.message));
@@ -88,7 +92,13 @@ try {
   await expect(card.getByRole('button',{name:'导出',exact:true})).toBeEnabled();
   await expect(card.getByRole('alert')).toHaveCount(0);
  }
+ const packResponse=page.waitForResponse(response=>response.request().resourceType()==='fetch'&&response.url().includes('ui-pack'));
+ await page.locator('#b50 .score-export-button').first().hover();
+ expect((await packResponse).ok()).toBe(true);
+ await expect.poll(()=>page.evaluate(()=>[...document.fonts].filter(font=>font.family.includes('Arcaea Result')&&font.status==='loaded').length)).toBe(6);
+ expect(exportProfileRequests).toBe(0);
  await exportOverview('desktop');
+ expect(exportProfileRequests).toBe(1);
  const firstScore=baseline.latest.best50[0];
  const firstCard=page.locator('#b50 .score-card').first();
  const bonus=await firstCard.locator('.score-count-bonus').textContent();
