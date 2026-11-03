@@ -338,7 +338,7 @@ export async function renderScoreResult(score: SongScore) {
   const palette = partner.nameplate ? nameplateColors[partner.profile.user.bannerId ?? ""] : undefined;
   const nameColor = palette?.color ?? (partner.nameplate ? "#fff" : "#28242b");
   text(ctx, partner.profile.user.name!, center - 58, 28, 28, nameColor, { align: "right", width: 250, family: scoreFamily,
-    outline: nameColor, outlineWidth: .9, shadow: palette ? { color: palette.shadow, x: .7, y: .7 } : undefined });
+    outline: nameColor, outlineWidth: 1.8, shadow: palette ? { color: palette.shadow, x: .7, y: .7 } : undefined });
   ctx.drawImage(frame, center - 50, -20, 100, 100);
   contain(ctx, partner.avatar, center - 43, -13, 86, 86);
   // Current potential belongs on the avatar's native tier badge. The separate
