@@ -158,7 +158,7 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
       </section>
 
       {job ? <div className="job-status" role="status">
-        <span>{job.status === "queued" ? "等待处理" : job.status === "running" ? "正在同步" : job.status === "failed" ? "同步失败" : "同步完成"} · {({ fetch: "获取数据", history: "官网历史", media: "媒体处理", archive: "归档备份", done: "完成" } as Record<string, string>)[job.stage] || job.stage}
+        <span>{job.status === "queued" ? "等待处理" : job.status === "running" ? "正在同步" : job.status === "failed" ? "同步失败" : "同步完成"} · {({ fetch: "获取数据", profile: "用户资料", history: "官网历史", media: "媒体处理", archive: "归档备份", done: "完成" } as Record<string, string>)[job.stage] || job.stage}
           {job.progress.total > 0 ? ` · ${job.progress.completed}/${job.progress.total}` : ""}</span>
         {job.status === "failed" ? <Button size="sm" onClick={retryFailedJob} disabled={action !== "idle"}>重试任务</Button> : null}
         {error ? <span>{error}</span> : null}

@@ -4,7 +4,8 @@ let profileRequest: Promise<ScoreExportProfile> | undefined;
 let renderer: Promise<typeof import("./score-result-renderer")> | undefined;
 
 function loadScoreExportProfile() {
-  // Deduplicate simultaneous exports, while refreshing the user on every new one.
+  // Deduplicate concurrent reads. Each new export reads the latest B50-synced
+  // profile from D1; exporting never signs in to Lowiro or refreshes upstream data.
   if (!profileRequest) {
     profileRequest = (async () => {
       const response = await fetch("/api/score-export/profile", { cache: "no-store", signal: AbortSignal.timeout(45_000) });
@@ -34,7 +35,7 @@ export function prepareScoreResult() {
 
 export async function exportScoreResult(score: Best50Score | SongScore) {
   const profile = loadScoreExportProfile();
-  // Decode the chart/UI while the fresh profile is still in flight. Attaching
+  // Decode the chart/UI while the cached profile is still in flight. Attaching
   // both promises immediately also handles profile failures during chunk loading.
   await Promise.all([
     loadRenderer().then(module => module.downloadScoreResult(score, profile)),

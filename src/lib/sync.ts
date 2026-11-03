@@ -7,6 +7,7 @@ import type { JobRow } from "./jobs";
 import { importOfficialHistory } from "./official-history";
 import { calculateWeightedPotential, formatPotential } from "./potential";
 import { publicAssetUrl, putAsset } from "./r2";
+import { cacheScoreExportProfile } from "./score-export-profile";
 import { Store, type CacheWrite } from "./store";
 import type { B50Snapshot, CharacterImageCacheEntry, ChartImageCacheEntry, JobView } from "./types";
 
@@ -44,7 +45,7 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
     if (saved) {
       state.snapshotId = saved.id; state.media = mediaItems(saved); state.historyPending = true;
       await checkpoint(state);
-      return { stage: "media", state };
+      return { stage: "profile", state };
     }
     const [remote, previous] = await Promise.all([getClient().then(client => client.fetchB50Snapshot()), store.latest()]);
     await store.aliases(remote.best50);
@@ -70,7 +71,16 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
       state.historyPending = true;
     }
     await checkpoint(state);
-    await store.log({ scope: "b50", level: state.duplicateOf ? "warning" : "success", action: state.duplicateOf ? "skipped" : "recorded", message: state.duplicateOf ? "B50 未变化，跳过快照和媒体归档。" : "B50 已保存，继续处理历史和媒体。", snapshotId: snapshot.id });
+    await store.log({ scope: "b50", level: state.duplicateOf ? "warning" : "success", action: state.duplicateOf ? "skipped" : "recorded", message: state.duplicateOf ? "B50 未变化，跳过成绩快照并更新导出资料。" : "B50 已保存，继续处理用户资料、历史和媒体。", snapshotId: snapshot.id });
+    return { stage: "profile", state };
+  }
+  if (job.stage === "profile") {
+    const snapshot = state.preview ?? (state.snapshotId ? await store.snapshot(state.snapshotId) : null);
+    if (!snapshot) throw new AppError("任务快照不存在。", 404, "SNAPSHOT_MISSING");
+    snapshot.user = await cacheScoreExportProfile(store, snapshot.user, getClient);
+    if (state.preview) state.preview = snapshot;
+    else await store.writeSnapshot(snapshot);
+    await checkpoint(state);
     return { stage: state.preview ? "history" : "media", state };
   }
   if (job.stage === "history") {
@@ -121,7 +131,7 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
     const results = await Promise.allSettled(finalizers);
     const failure = results.find(result => result.status === "rejected");
     if (failure?.status === "rejected") throw failure.reason;
-    if (state.preview) return { stage: "done", state, result: { snapshot: state.preview, recorded: false, duplicateOf: state.duplicateOf, message: "B50 未变化，仅显示当前结果，未新增快照或上传媒体。" } };
+    if (state.preview) return { stage: "done", state, result: { snapshot: state.preview, recorded: false, duplicateOf: state.duplicateOf, message: "B50 未变化，已更新用户资料，未新增成绩快照。" } };
     await store.log({ scope: job.kind === "import" ? "b50" : "media", level: "success", action: "completed", message: state.historyMessage || "媒体处理和 R2 归档已完成。", ...(snapshot ? { snapshotId: snapshot.id } : {}) });
     return { stage: "done", state, result: { ...(snapshot ? { snapshot, recorded: true } : {}), message: state.historyMessage || "B50、媒体和归档已同步完成。" } };
   }

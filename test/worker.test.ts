@@ -320,7 +320,15 @@ describe("single-song queries", () => {
 });
 
 describe("score export profiles", () => {
-  it("requires authentication and GET before contacting Lowiro", async () => {
+  async function syncB50(trigger: B50Snapshot["trigger"] = "manual") {
+    const job = await enqueue(env, "sync", trigger);
+    await deliver(sent.shift()!);
+    const result = await getJob(env, job.jobId);
+    expect(result.status).toBe("succeeded");
+    return result;
+  }
+
+  it("requires authentication and GET without contacting Lowiro", async () => {
     const upstream = vi.spyOn(ArcaeaClient, "login").mockRejectedValue(new Error("Unexpected login"));
     expect((await api(env, request("/api/score-export/profile"))).status).toBe(401);
     const cookie = await login();
@@ -334,13 +342,11 @@ describe("score export profiles", () => {
     expect(characterAssetId({ ...user, characterUncappedOverride: true })).toBe("23");
     expect(characterAssetId({ ...user, characterUncapped: false })).toBe("23");
     expect(characterAssetId({ ...user, characterId: 7 })).toBe("7");
-    for (const characterId of [undefined, -1, 2.5, 99999]) {
-      expect(characterAssetId({ ...user, characterId })).toBeNull();
-    }
+    for (const characterId of [undefined, -1, 2.5, 99999]) expect(characterAssetId({ ...user, characterId })).toBeNull();
   });
 
-  it("reads the active partner flags from the profile without exposing private upstream fields", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+  it("preserves normalized partner flags without exposing private upstream fields", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const upstream = new Request(input, init);
       if (new URL(upstream.url).pathname === "/auth/login") {
         return Response.json({ isLoggedIn: true }, { headers: { "set-cookie": "lowiro=private-session; Secure" } });
@@ -351,23 +357,31 @@ describe("score export profiles", () => {
           { character_id: 23, is_uncapped: true, is_uncapped_override: false, private_field: "do not expose" },
         ] } });
     });
+    const client = await ArcaeaClient.login(env);
+    await new Store(env).putCache("score-export", "profile", await client.getUser());
+    fetch.mockClear();
+    fetch.mockRejectedValue(new Error("Export must not contact Lowiro"));
     const cookie = await login();
     const response = await api(env, request("/api/score-export/profile", "GET", cookie));
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.json()).toEqual({ characterAssetId: "23u", user: { name: "Current Player", userCode: "123456789",
       rating: 12.939, characterId: 23, characterUncapped: true, characterUncappedOverride: false } });
+    expect(fetch).not.toHaveBeenCalled();
     expect(await new Store(env).latest()).toBeNull();
     expect(sent).toHaveLength(0);
   });
 
-  it("caches the official avatar once and serves it from the authenticated origin", async () => {
+  it("syncs the official avatar once and exports locally even without Lowiro credentials", async () => {
     const snapshot = uncachedFixture();
     snapshot.user.characterId = 23;
     snapshot.user.characterUncapped = true;
     const client = mockLowiro(snapshot);
     env.R2_PUBLIC_URL = "https://images.example.com";
     const cookie = await login();
+    await syncB50();
+    vi.mocked(ArcaeaClient.login).mockRejectedValue(new Error("Lowiro offline"));
+    delete env.USERNAME; delete env.PASSWD;
     for (let i = 0; i < 2; i++) {
       const response = await api(env, request("/api/score-export/profile", "GET", cookie));
       expect(response.status).toBe(200);
@@ -375,58 +389,63 @@ describe("score export profiles", () => {
         avatarImageUrl: `/api/media/characters/${snapshot.user.characterIcon}.png`,
       } });
     }
-    expect(client.getUser).toHaveBeenCalledTimes(2);
+    expect(ArcaeaClient.login).toHaveBeenCalledTimes(1);
+    expect(client.fetchB50Snapshot).toHaveBeenCalledTimes(1);
+    expect(client.getUser).not.toHaveBeenCalled();
     expect(client.getCharacterIconImage).toHaveBeenCalledExactlyOnceWith(snapshot.user.characterIcon);
     expect(await env.ARCHIVE.head(`characters/${snapshot.user.characterIcon}.png`)).not.toBeNull();
   });
 
-  it("reuses an export login while reading the latest user on every export", async () => {
-    const snapshot = uncachedFixture();
-    const client = mockLowiro(snapshot);
+  it.each(["manual", "cron", "daily"] as const)("updates export data on %s sync even when B50 is unchanged", async trigger => {
+    const snapshot = uncachedFixture(), client = mockLowiro(snapshot), store = new Store(env);
     const cookie = await login();
-    expect((await api(env, request("/api/score-export/profile", "GET", cookie))).status).toBe(200);
+    await syncB50();
     snapshot.user.name = "Changed Player";
     snapshot.user.rating = 13;
     snapshot.user.characterId = 23;
+    snapshot.user.characterUncapped = true;
+    const before = await api(env, request("/api/score-export/profile", "GET", cookie));
+    expect(await before.json()).toMatchObject({ characterAssetId: "7", user: { name: "Test", rating: 12.5 } });
+    const updated = await syncB50(trigger);
+    expect(updated.result?.recorded).toBe(false);
+    expect(await store.snapshots()).toHaveLength(1);
+    expect((await store.latest())?.user.name).toBe("Test");
     const response = await api(env, request("/api/score-export/profile", "GET", cookie));
-    expect(await response.json()).toMatchObject({ characterAssetId: "23", user: { name: "Changed Player", rating: 13 } });
-    expect(ArcaeaClient.login).toHaveBeenCalledTimes(1);
-    expect(client.getUser).toHaveBeenCalledTimes(2);
+    expect(await response.json()).toMatchObject({ characterAssetId: "23u", user: { name: "Changed Player", rating: 13 } });
+    expect(ArcaeaClient.login).toHaveBeenCalledTimes(2);
+    expect(client.fetchB50Snapshot).toHaveBeenCalledTimes(2);
+    expect(client.getUser).not.toHaveBeenCalled();
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
-  it("renews the export login after five minutes and after credential changes", async () => {
-    const client = mockLowiro(uncachedFixture());
+  it("asks for a B50 sync when no usable profile exists, without an upstream fallback", async () => {
+    const upstream = vi.spyOn(ArcaeaClient, "login").mockRejectedValue(new Error("Unexpected login"));
     const cookie = await login();
-    const now = Date.now();
-    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
-    for (const time of [now, now + 299_999, now + 300_001]) {
-      clock.mockReturnValue(time);
-      expect((await api(env, request("/api/score-export/profile", "GET", cookie))).status).toBe(200);
+    for (const user of [undefined, { rating: 12.5, name: "Test" }, { rating: 12.5, characterId: 23 }]) {
+      if (user) await new Store(env).putCache("score-export", "profile", user);
+      const response = await api(env, request("/api/score-export/profile", "GET", cookie));
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ code: "EXPORT_PROFILE_MISSING", error: expect.stringContaining("B50") });
     }
-    expect(ArcaeaClient.login).toHaveBeenCalledTimes(2);
-    env.PASSWD = "changed";
-    expect((await api(env, request("/api/score-export/profile", "GET", cookie))).status).toBe(200);
-    expect(ArcaeaClient.login).toHaveBeenCalledTimes(3);
-    expect(client.getUser).toHaveBeenCalledTimes(4);
+    expect(upstream).not.toHaveBeenCalled();
   });
 
-  it("relogs once when a reused export session expires, without caching a failed login", async () => {
-    const client = mockLowiro(uncachedFixture());
+  it("uses legacy snapshot data and already-cached media without loading scores or writing a cache", async () => {
+    const store = new Store(env), snapshot = uncachedFixture();
+    Object.assign(snapshot.user, { characterId: 23, characterUncapped: true, bannerResource: "b".repeat(32),
+      avatarImageKey: `characters/${"c".repeat(32)}.png`, avatarImageUrl: "https://images.example.com/avatar.png" });
+    await store.writeSnapshot(snapshot);
+    await env.ARCHIVE.put(`banners/${"b".repeat(32)}.png`, "banner");
     const cookie = await login();
-    expect((await api(env, request("/api/score-export/profile", "GET", cookie))).status).toBe(200);
-    client.getUser.mockRejectedValueOnce(new Error("Expired upstream session"));
-    expect((await api(env, request("/api/score-export/profile", "GET", cookie))).status).toBe(200);
-    expect(ArcaeaClient.login).toHaveBeenCalledTimes(2);
-    client.getUser.mockResolvedValueOnce({ rating: 0 } as B50Snapshot["user"]);
-    expect((await api(env, request("/api/score-export/profile", "GET", cookie))).status).toBe(200);
-    expect(ArcaeaClient.login).toHaveBeenCalledTimes(3);
-    vi.mocked(ArcaeaClient.login).mockRejectedValueOnce(new Error("Temporary login failure"));
-    env.PASSWD = "changed";
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    expect((await api(env, request("/api/score-export/profile", "GET", cookie))).status).toBe(500);
-    expect((await api(env, request("/api/score-export/profile", "GET", cookie))).status).toBe(200);
-    expect(ArcaeaClient.login).toHaveBeenCalledTimes(5);
+    const upstream = vi.spyOn(ArcaeaClient, "login").mockRejectedValue(new Error("Unexpected login"));
+    const snapshots = vi.spyOn(Store.prototype, "latest"), writing = vi.spyOn(Store.prototype, "putCache");
+    const response = await api(env, request("/api/score-export/profile", "GET", cookie));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ characterAssetId: "23u", user: { avatarImageUrl: `/api/media/characters/${"c".repeat(32)}.png` }, bannerImageUrl: `/api/media/banners/${"b".repeat(32)}.png` });
+    expect(upstream).not.toHaveBeenCalled(); expect(snapshots).not.toHaveBeenCalled(); expect(writing).not.toHaveBeenCalled();
+    await env.ARCHIVE.delete(`banners/${"b".repeat(32)}.png`);
+    expect((await api(env, request("/api/score-export/profile", "GET", cookie))).status).toBe(409);
+    expect(upstream).not.toHaveBeenCalled();
   });
 
   it("selects the equipped banner, honors hidden plates and defaults to the highest course", async () => {
@@ -454,13 +473,14 @@ describe("score export profiles", () => {
     expect(await client.getUser()).not.toHaveProperty("bannerResource");
   });
 
-  it("caches banner hashes once, refreshes the selection and protects the same-origin image", async () => {
+  it("syncs banner hashes once and updates or hides the selection only on the next B50 sync", async () => {
     const snapshot = uncachedFixture();
     snapshot.user.bannerId = "online_banner_2026_10";
     snapshot.user.bannerResource = "b".repeat(32);
     const client = mockLowiro(snapshot);
     env.R2_PUBLIC_URL = "https://images.example.com";
     const cookie = await login();
+    await syncB50(); await syncB50();
     for (let i = 0; i < 2; i++) {
       const response = await api(env, request("/api/score-export/profile", "GET", cookie));
       expect(response.status).toBe(200);
@@ -474,24 +494,40 @@ describe("score export profiles", () => {
     expect(image.headers.get("cache-control")).toContain("private");
     expect(new Uint8Array(await image.arrayBuffer())).toEqual(new Uint8Array([1, 2]));
     snapshot.user.bannerResource = "d".repeat(32);
+    const before = await api(env, request("/api/score-export/profile", "GET", cookie));
+    expect(await before.json()).toMatchObject({ bannerImageUrl: `/api/media/banners/${"b".repeat(32)}.png` });
+    await syncB50();
     const changed = await api(env, request("/api/score-export/profile", "GET", cookie));
     expect(await changed.json()).toMatchObject({ bannerImageUrl: `/api/media/banners/${"d".repeat(32)}.png` });
     expect(client.getBannerImage).toHaveBeenCalledTimes(2);
+    delete snapshot.user.bannerResource; delete snapshot.user.bannerId;
+    await syncB50();
+    expect(await (await api(env, request("/api/score-export/profile", "GET", cookie))).json()).not.toHaveProperty("bannerImageUrl");
+    expect(client.getBannerImage).toHaveBeenCalledTimes(2);
   });
 
-  it("reports banner failures for retry rather than silently substituting a different plate", async () => {
-    const snapshot = fixture();
-    snapshot.user.characterId = 23;
+  it("checkpoints banner failures in the B50 job and retries without refetching scores", async () => {
+    const snapshot = uncachedFixture();
     snapshot.user.bannerId = "online_banner_2026_10";
     snapshot.user.bannerResource = "b".repeat(32);
-    const client = mockLowiro(snapshot);
+    const client = mockLowiro(snapshot), store = new Store(env);
+    await store.putCache("score-export", "profile", { rating: 10, name: "Previously synced", characterId: 7 });
     client.getBannerImage.mockRejectedValueOnce(new Error("Temporary banner failure"));
-    const cookie = await login();
-    const failed = await api(env, request("/api/score-export/profile", "GET", cookie));
-    expect(failed.status).toBe(502);
-    expect(await failed.json()).toMatchObject({ code: "EXPORT_BANNER_UNAVAILABLE" });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cookie = await login(), job = await enqueue(env, "sync");
+    await deliver(sent.shift()!);
+    expect(await getJob(env, job.jobId)).toMatchObject({ status: "queued", stage: "profile" });
+    const unchanged = await api(env, request("/api/score-export/profile", "GET", cookie));
+    expect(await unchanged.json()).toMatchObject({ user: { name: "Previously synced" } });
     expect(await env.ARCHIVE.head(`banners/${"b".repeat(32)}.png`)).toBeNull();
-    expect((await api(env, request("/api/score-export/profile", "GET", cookie))).status).toBe(200);
+    await deliver(sent.shift()!);
+    expect((await getJob(env, job.jobId)).status).toBe("succeeded");
+    const response = await api(env, request("/api/score-export/profile", "GET", cookie));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ user: { name: "Test" }, bannerImageUrl: `/api/media/banners/${"b".repeat(32)}.png` });
+    expect(client.fetchB50Snapshot).toHaveBeenCalledTimes(1);
+    expect(client.getBannerImage).toHaveBeenCalledTimes(2);
+    expect(client.getCharacterIconImage).toHaveBeenCalledTimes(1);
   });
 
   it("rejects invalid banner resource paths before requesting an image", async () => {
@@ -503,22 +539,23 @@ describe("score export profiles", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the matching bundled avatar available when the upstream image fails", async () => {
-    const snapshot = uncachedFixture();
-    const client = mockLowiro(snapshot);
+  it("keeps the matching bundled avatar available when the upstream image fails during sync", async () => {
+    const client = mockLowiro(uncachedFixture());
     client.getCharacterIconImage.mockRejectedValueOnce(new Error("Temporary icon failure"));
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const cookie = await login();
+    await syncB50();
     const response = await api(env, request("/api/score-export/profile", "GET", cookie));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ characterAssetId: "7", user: { name: "Test" } });
   });
 
-  it("reports an unavailable partner instead of substituting an unrelated illustration", async () => {
+  it("retains B50 scores for unsupported partners and reports their missing export art", async () => {
     const snapshot = fixture();
     snapshot.user.characterId = 99999;
     mockLowiro(snapshot);
     const cookie = await login();
+    await syncB50();
     const response = await api(env, request("/api/score-export/profile", "GET", cookie));
     expect(response.status).toBe(502);
     expect(await response.json()).toMatchObject({ code: "CHARACTER_ART_UNAVAILABLE" });

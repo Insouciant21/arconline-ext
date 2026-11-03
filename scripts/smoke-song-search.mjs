@@ -54,12 +54,13 @@ try {
   await expect(page.getByRole('link', { name: '单曲查询', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('heading', { name: '查找一首歌' })).toBeVisible();
 
-  let fail = true, recoverArtwork = false, failProfile = false, useBasePartner = false;
+  let fail = true, recoverArtwork = false, failProfile = false, missingProfile = false, useBasePartner = false;
   let profileRequests = 0;
   const requests = [];
   // Exercise the browser independently of subscription status and upstream changes.
   await page.route('**/api/score-export/profile', route => {
     profileRequests++;
+    if (missingProfile) return route.fulfill({ status: 409, json: { error: '请先获取一次 B50，同步导出所需的用户资料。', code: 'EXPORT_PROFILE_MISSING' } });
     return failProfile ? route.fulfill({ status: 502, json: { error: '用户信息暂时不可用，请重试导出。' } }) : route.fulfill({ json: {
       characterAssetId: useBasePartner ? '23' : '23u', user: { name: 'Test Player · 咲弥', userCode: '123456789', rating: 12.939,
         characterId: 23, characterUncapped: true, characterUncappedOverride: useBasePartner, avatarImageUrl: '/api/media/characters/export-avatar.png',
@@ -275,6 +276,11 @@ try {
   await expect(page.locator('.score-card')).toHaveCount(1);
   await expect(page.getByRole('button', { name: '导出', exact: true })).toBeEnabled();
   failProfile = false;
+  missingProfile = true;
+  await page.getByRole('button', { name: '导出', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('请先获取一次 B50');
+  await expect(page.getByRole('button', { name: '导出', exact: true })).toBeEnabled();
+  missingProfile = false;
   await exportResult('profile-retry');
   await expect(page.getByRole('alert')).toHaveCount(0);
   await page.screenshot({ path: `${directory}/song-export-mobile.png`, fullPage: true });

@@ -59,6 +59,7 @@ export interface StoredUser {
   avatarImageUrl?: string;
   bannerId?: string;
   bannerResource?: string;
+  bannerImageKey?: string;
 }
 
 export interface ScoreExportProfile {
