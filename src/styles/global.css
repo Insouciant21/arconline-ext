@@ -2178,7 +2178,7 @@ body::before {
 .song-search-status:empty { display: none; }
 .song-search-status strong { color: var(--violet); font-family: var(--font-number); font-size: 18px; }
 .song-search-grid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
-.song-search-grid .score-detail-row { flex-wrap: wrap; row-gap: 5px; }
+.score-detail-row:has(.score-export-button) { flex-wrap: wrap; row-gap: 5px; }
 .score-export-button {
   display: inline-flex;
   flex: none;

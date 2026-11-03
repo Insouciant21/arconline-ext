@@ -33,7 +33,7 @@ import cjkFont from "@/assets/score-result/result-cjk.woff2?url";
 import numberFont from "@/assets/score-result/result-number.woff2?url";
 import numberMediumFont from "@/assets/score-result/result-number-medium.woff2?url";
 import type { ImageMetadata } from "astro";
-import type { ScoreExportProfile, SongScore } from "./types";
+import type { Best50Score, ScoreExportProfile, SongScore } from "./types";
 import { clearTypeLabel, difficultyCode, difficultyLabel } from "./utils";
 import { scoreResultData } from "./score-result";
 import bannerPalettes from "./score-result-banners.json";
@@ -232,7 +232,7 @@ function resultPanel(image: HTMLImageElement) {
   return canvas;
 }
 
-export async function renderScoreResult(score: SongScore) {
+export async function renderScoreResult(score: Best50Score | SongScore) {
   const result = scoreResultData(score);
   const code = difficultyCode(score.difficulty, score.difficultyAlias) as keyof typeof difficulties;
   const [bg, header, grade, clear, pure, far, lost, artwork, panel, difficulty, userBack, frame, top, bottom, footer, partner] = await Promise.all([
@@ -308,7 +308,7 @@ export async function renderScoreResult(score: SongScore) {
     const shadow = { color: "rgba(62,44,74,.3)", x: .4, y: .5, blur: .3 };
     text(ctx, label, 629, y + 15, 19, "#fff", { align: "right", outline, outlineWidth: 1.1, shadow });
     text(ctx, value, 680, y + 15, 20, "#fff", { align: "center", width: 75, family: semiboldFamily, outline, outlineWidth: 1.1, shadow });
-    if (index === 0) text(ctx, `(+${score.shinyPerfectCount})`, 730, y + 15, 18, "#d8cbe3", { family: semiboldFamily, outline: "rgba(90,73,103,.5)", outlineWidth: .8 });
+    if (index === 0 && result.shinyPerfectCount !== null) text(ctx, `(+${result.shinyPerfectCount})`, 730, y + 15, 18, "#d8cbe3", { family: semiboldFamily, outline: "rgba(90,73,103,.5)", outlineWidth: .8 });
   });
   if (score.clearType === 4 || score.clearType === 5) {
     text(ctx, clearTypeLabel(score.clearType).toUpperCase(), 640, 641, 15, "#76637f", { align: "center" });
@@ -368,7 +368,7 @@ export async function renderScoreResult(score: SongScore) {
   return { blob, filename: result.filename };
 }
 
-export async function downloadScoreResult(score: SongScore) {
+export async function downloadScoreResult(score: Best50Score | SongScore) {
   const { blob, filename } = await renderScoreResult(score);
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");

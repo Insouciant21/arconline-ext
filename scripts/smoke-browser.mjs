@@ -8,6 +8,10 @@ await mkdir(artifactDirectory,{recursive:true});
 const browser=await chromium.launch({headless:true});
 try {
  const context=await browser.newContext();const page=await context.newPage();const errors=[];
+ const exportAssets=[];
+ page.on('request',request=>{if(/score-result-renderer|result-(text|score|cjk|number).*woff2|\/api\/score-export\/profile/.test(request.url()))exportAssets.push(request.url());});
+ // Local D1 fixtures can reference covers that are only present in production R2.
+ await page.route('**/api/media/charts/**',route=>route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><path fill="#6255b8" d="M0 0h512v512H0z"/></svg>'}));
  page.on('pageerror',error=>errors.push(error.message));
  async function signIn() {
   await page.locator('astro-island:not([ssr])').waitFor();
@@ -25,6 +29,10 @@ try {
  await page.locator('astro-island:not([ssr])').waitFor();
  await page.locator('.score-grid .score-card').first().waitFor({timeout:30000});
  const cards=await page.locator('.score-grid .score-card').count();if(cards!==50)throw new Error(`Expected 50 scores, got ${cards}`);
+ await page.locator('astro-island:has(.score-card):not([ssr])').waitFor();
+ await expect(page.locator('#b50 .score-export-button')).toHaveCount(50);
+ await expect(page.locator('#b50 .score-song-id')).toHaveCount(0);
+ expect(exportAssets).toEqual([]);
  const footerText=await page.locator('.footer').innerText();
  if(footerText!=='ArcOnline Extension')throw new Error(`Footer should only show the product name: ${JSON.stringify(footerText)}`);
  if(await page.title()!=='ArcOnline Extension')throw new Error(`Unexpected page title: ${await page.title()}`);
@@ -59,6 +67,38 @@ try {
  expect(baselineResponse.ok()).toBe(true);
  const baseline=await baselineResponse.json();
  expect(baseline.activeJob).toBeNull();
+ let failExportProfile=false;
+ await page.route('**/api/score-export/profile',route=>failExportProfile
+  ?route.fulfill({status:502,json:{error:'用户信息暂时不可用，请重试导出。'}})
+  :route.fulfill({json:{characterAssetId:'23u',user:{name:'B50 Export Test',rating:12.939,characterId:23}}}));
+ await page.evaluate(()=>{
+  window.__exportText=[];
+  const original=CanvasRenderingContext2D.prototype.fillText;
+  CanvasRenderingContext2D.prototype.fillText=function(value,...args){window.__exportText.push(value);return original.call(this,value,...args);};
+ });
+ async function exportOverview(name){
+  const card=page.locator('#b50 .score-card').first();
+  const downloadEvent=page.waitForEvent('download',{timeout:60000});
+  await card.getByRole('button',{name:'导出',exact:true}).click();
+  const download=await downloadEvent;
+  await download.saveAs(`${artifactDirectory}/overview-result-${name}.png`);
+  const bytes=await readFile(`${artifactDirectory}/overview-result-${name}.png`);
+  expect(bytes.subarray(0,8).toString('hex')).toBe('89504e470d0a1a0a');
+  expect([bytes.readUInt32BE(16),bytes.readUInt32BE(20)]).toEqual([3124,1440]);
+  await expect(card.getByRole('button',{name:'导出',exact:true})).toBeEnabled();
+  await expect(card.getByRole('alert')).toHaveCount(0);
+ }
+ await exportOverview('desktop');
+ const firstScore=baseline.latest.best50[0];
+ const firstCard=page.locator('#b50 .score-card').first();
+ const bonus=await firstCard.locator('.score-count-bonus').textContent();
+ expect(await page.evaluate(()=>window.__exportText)).toEqual(expect.arrayContaining([
+  String(firstScore.score).padStart(8,'0').replace(/\B(?=(\d{3})+(?!\d))/g,"'"),
+  firstScore.rating.toFixed(3),await firstCard.locator('.score-potential strong').textContent(),
+  bonus.replaceAll(',',''),'B50 Export Test',
+ ]));
+ expect((await page.evaluate(()=>window.__exportText)).join(' ')).not.toMatch(/undefined|NaN/);
+ await page.screenshot({path:`${artifactDirectory}/overview-export-desktop.png`});
  await page.getByRole('tab',{name:'1W',exact:true}).click();
  await expect(page.getByRole('tab',{name:'1W',exact:true})).toHaveAttribute('aria-selected','true');
  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
@@ -137,6 +177,17 @@ try {
  await signIn();
  await page.locator('.score-grid .score-card').first().waitFor();await page.screenshot({path:`${artifactDirectory}/dashboard-mobile.png`,fullPage:true});
  const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth);if(overflow)throw new Error('Mobile horizontal overflow');
+ await page.setViewportSize({width:320,height:900});
+ await page.locator('astro-island:has(.score-card):not([ssr])').waitFor();
+ failExportProfile=true;
+ await page.locator('#b50 .score-export-button').first().click();
+ await expect(page.locator('#b50 .score-card').first().getByRole('alert')).toContainText('用户信息暂时不可用');
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth)).toBe(false);
+ failExportProfile=false;
+ await exportOverview('mobile');
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth)).toBe(false);
+ await page.locator('#b50 .score-card').first().scrollIntoViewIfNeeded();
+ await page.screenshot({path:`${artifactDirectory}/overview-export-mobile.png`});
  if(errors.length)throw new Error(errors.join('\n'));
- console.log(JSON.stringify({origin,cards,login:true,historyComparison:true,logout:true,mobile:true,cardMemoization:true,polling:{jobReads,dashboardReads,terminalJobReads},pageErrors:errors.length}));
+ console.log(JSON.stringify({origin,cards,login:true,historyComparison:true,logout:true,mobile:true,export:{png:'3124x1440',b50:true,lazyAssets:true,shinyPure:true,ptt:true,retry:true,responsive:320},cardMemoization:true,polling:{jobReads,dashboardReads,terminalJobReads},pageErrors:errors.length}));
 } finally {await browser.close();}

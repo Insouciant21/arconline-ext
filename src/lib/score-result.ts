@@ -1,7 +1,7 @@
 import { chartConstantForSong } from "./chart-constants";
 import chartLevels from "./score-result-levels.json";
-import type { SongScore } from "./types";
-import { difficultyCode, playRatingFromConstant } from "./utils";
+import type { Best50Score, SongScore } from "./types";
+import { chartConstantFromScore, difficultyCode, playRatingFromConstant, shinyPureCount } from "./utils";
 
 const levels: Record<string, Array<string | null>> = chartLevels;
 const playedAtFormatter = new Intl.DateTimeFormat("en-GB", {
@@ -19,8 +19,8 @@ export function resultGrade(score: number): "explus" | "ex" | "aa" | "a" | "b" |
   return "d";
 }
 
-export function scoreResultData(score: SongScore) {
-  const constant = chartConstantForSong(score.songId, score.difficulty);
+export function scoreResultData(score: Best50Score | SongScore) {
+  const constant = "rating" in score ? chartConstantFromScore(score) : chartConstantForSong(score.songId, score.difficulty);
   const clear: "fail" | "full" | "pure" | "normal" = score.clearType === 0 ? "fail" : score.clearType === 2 ? "full" : score.clearType === 3 ? "pure" : "normal";
   const date = new Date(score.timePlayed);
   const parts = score.timePlayed > 0 && Number.isFinite(date.getTime())
@@ -33,7 +33,8 @@ export function scoreResultData(score: SongScore) {
     title: score.title.zh || score.title.en || score.title.ja || score.songId,
     constant,
     level: Object.hasOwn(levels, score.songId) && Number.isInteger(score.difficulty) ? levels[score.songId][score.difficulty] ?? null : null,
-    rating: constant === null ? null : playRatingFromConstant(constant, score),
+    rating: "rating" in score ? score.rating : constant === null ? null : playRatingFromConstant(constant, score),
+    shinyPerfectCount: "shinyPerfectCount" in score ? score.shinyPerfectCount : shinyPureCount(score),
     grade: resultGrade(score.score),
     // Grade and clear status are separate: a PURE MEMORY still has an EX+ grade.
     clear,

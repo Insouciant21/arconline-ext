@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
-import type { SongScore } from "@/lib/types";
+import type { Best50Score, SongScore } from "@/lib/types";
 
-export function ScoreExportButton({ score }: { score: SongScore }) {
+export function ScoreExportButton({ score }: { score: Best50Score | SongScore }) {
   const active = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -4,7 +4,6 @@ import * as React from "react";
 import { ChevronLeft, ChevronRight, Loader2, Search } from "lucide-react";
 import { AppNavigation } from "@/components/app-navigation";
 import { ScoreCard } from "@/components/score-card";
-import { ScoreExportButton } from "@/components/score-export-button";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { chartConstantForSong } from "@/lib/chart-constants";
@@ -138,7 +137,7 @@ export function SongSearchShell() {
           {!loading && !error && data && query ? data.scores.length ? (
             <>
               <div className="score-grid song-search-grid">
-                {data.scores.map(score => <ScoreCard key={`${score.songId}:${score.difficulty}`} score={score} chartConstant={chartConstantForSong(score.songId, score.difficulty)} detailAction={<ScoreExportButton score={score} />} />)}
+                {data.scores.map(score => <ScoreCard key={`${score.songId}:${score.difficulty}`} score={score} chartConstant={chartConstantForSong(score.songId, score.difficulty)} showExport />)}
               </div>
               {totalPages > 1 ? <nav className="song-search-pagination" aria-label="成绩分页">
                 <Button variant="secondary" size="sm" disabled={query.page <= 1} onClick={() => search({ ...query, page: query.page - 1 })}><ChevronLeft size={14} />上一页</Button>

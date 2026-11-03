@@ -1,4 +1,5 @@
-import { memo, type ReactNode } from "react";
+import { memo } from "react";
+import { ScoreExportButton } from "@/components/score-export-button";
 import type { Best50Score, SongScore } from "@/lib/types";
 import {
   clearTypeCode,
@@ -13,7 +14,7 @@ import {
   shinyPureCount,
 } from "@/lib/utils";
 
-export const ScoreCard = memo(function ScoreCard({ score, rank, detailAction, chartConstant: suppliedConstant }: { score: Best50Score | SongScore; rank?: number; detailAction?: ReactNode; chartConstant?: number | null }) {
+export const ScoreCard = memo(function ScoreCard({ score, rank, showExport = false, chartConstant: suppliedConstant }: { score: Best50Score | SongScore; rank?: number; showExport?: boolean; chartConstant?: number | null }) {
   const title = score.title.zh || score.title.en || score.title.ja || score.songId;
   const playedAt = score.timePlayed > 0 ? formatRelativeDate(score.timePlayed) : "—";
   const chartConstant = suppliedConstant ?? ("rating" in score ? chartConstantFromScore(score) : null);
@@ -60,7 +61,7 @@ export const ScoreCard = memo(function ScoreCard({ score, rank, detailAction, ch
 
           <div className="score-detail-row">
             <span><b>DATE</b>{playedAt}</span>
-            {detailAction ?? <span className="score-song-id" title={score.songId}>{score.songId}</span>}
+            {showExport ? <ScoreExportButton score={score} /> : <span className="score-song-id" title={score.songId}>{score.songId}</span>}
           </div>
         </div>
       </div>

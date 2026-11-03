@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { chartConstantForSong } from "../src/lib/chart-constants";
 import { resultGrade, scoreResultData } from "../src/lib/score-result";
 import { chartConstantFromScore, playRatingFromConstant } from "../src/lib/utils";
-import type { SongScore } from "../src/lib/types";
+import type { Best50Score, SongScore } from "../src/lib/types";
 
 const score: SongScore = {
   songId: "aegleseeker", difficulty: 2, modifier: 0, score: 9_960_014,
@@ -36,6 +36,19 @@ describe("score result export data", () => {
     expect(result.scoreText).toBe("09'960'014");
     expect(result.dateText).toBe("2026/04/26 21:55");
     expect(result.filename).toBe("aegleseeker-FTR-20260426-2155.png");
+  });
+
+  it("exports B50 scores with their recorded PTT and inferred shiny PURE count", () => {
+    const best50: Best50Score = {
+      songId: score.songId, difficulty: score.difficulty, modifier: score.modifier, score: score.score,
+      perfectCount: score.perfectCount, nearCount: score.nearCount, missCount: score.missCount,
+      clearType: score.clearType, title: score.title, artist: score.artist, timePlayed: score.timePlayed,
+      rating: 13.20007,
+    };
+    expect(scoreResultData(best50)).toMatchObject({ constant: 11.2, rating: best50.rating, shinyPerfectCount: 1469 });
+    expect(scoreResultData({ ...best50, songId: "not-in-table" })).toMatchObject({ constant: 11.2, rating: best50.rating });
+    expect(scoreResultData({ ...best50, score: 9_999_999 }).shinyPerfectCount).toBeNull();
+    expect(scoreResultData({ ...score, shinyPerfectCount: 0 }).shinyPerfectCount).toBe(0);
   });
 
   it("uses the game's displayed chart level independently of the chart constant", () => {
