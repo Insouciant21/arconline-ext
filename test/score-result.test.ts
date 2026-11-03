@@ -30,10 +30,17 @@ describe("score result export data", () => {
   it("calculates the single-play PTT for the reference result", () => {
     const result = scoreResultData(score);
     expect(result.constant).toBe(11.2);
+    expect(result.level).toBe("11");
     expect(result.rating).toBeCloseTo(13.20007, 6);
     expect(result.scoreText).toBe("09’960’014");
     expect(result.dateText).toBe("2026/04/26 21:55");
     expect(result.filename).toBe("aegleseeker-FTR-20260426-2155.png");
+  });
+
+  it("uses the game's displayed chart level independently of the chart constant", () => {
+    expect(scoreResultData({ ...score, songId: "sulfur" })).toMatchObject({ constant: 9.7, level: "9+" });
+    expect(scoreResultData({ ...score, songId: "sayonarahatsukoi", difficulty: 4 }).level).toBe("8");
+    expect(scoreResultData({ ...score, songId: "unknown-song" }).level).toBeNull();
   });
 
   it("keeps PURE MEMORY separate from the score grade", () => {

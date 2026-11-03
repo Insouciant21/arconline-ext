@@ -53,8 +53,15 @@ export interface StoredUser {
   joinDate?: number;
   characterId?: number;
   characterIcon?: string;
+  characterUncapped?: boolean;
+  characterUncappedOverride?: boolean;
   avatarImageKey?: string;
   avatarImageUrl?: string;
+}
+
+export interface ScoreExportProfile {
+  user: StoredUser;
+  characterAssetId: string;
 }
 
 export interface ImageStats {

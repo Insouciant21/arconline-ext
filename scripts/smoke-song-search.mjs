@@ -20,10 +20,12 @@ try {
   const errors = [];
   const exportAssets = [];
   const exportFonts = [];
+  const partnerAssets = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('request', request => {
-    if (/result-(text|score|cjk).*woff2|score-result\/|background\..*webp/.test(request.url())) exportAssets.push(request.url());
-    if (request.resourceType() === 'font' && /result-(text|score|cjk).*woff2/.test(request.url())) exportFonts.push(request.url());
+    if (/result-(text|score|cjk|number).*woff2|score-result\/|background\..*webp/.test(request.url())) exportAssets.push(request.url());
+    if (request.resourceType() === 'font' && /result-(text|score|cjk|number).*woff2/.test(request.url())) exportFonts.push(request.url());
+    if (request.resourceType() === 'image' && /\/(?:23u?|23u?-icon)(?:\.[^/]+)?\.webp/.test(request.url())) partnerAssets.push(request.url());
   });
   await page.addInitScript(() => {
     window.__exportText = [];
@@ -33,7 +35,7 @@ try {
       return fillText.call(this, value, x, y, ...rest);
     };
   });
-  await page.goto(origin + '/scores');
+  await page.goto(origin + '/scores', { waitUntil: 'domcontentloaded' });
   await page.waitForURL('**/login?callbackUrl=%2Fscores');
   await page.locator('astro-island:not([ssr])').waitFor();
   await page.getByPlaceholder('输入访问口令').fill(token);
@@ -43,9 +45,19 @@ try {
   await expect(page.getByRole('link', { name: '单曲查询', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('heading', { name: '查找一首歌' })).toBeVisible();
 
-  let fail = true, recoverArtwork = false;
+  let fail = true, recoverArtwork = false, failProfile = false, useBasePartner = false;
+  let profileRequests = 0;
   const requests = [];
   // Exercise the browser independently of subscription status and upstream changes.
+  await page.route('**/api/score-export/profile', route => {
+    profileRequests++;
+    return failProfile ? route.fulfill({ status: 502, json: { error: '用户信息暂时不可用，请重试导出。' } }) : route.fulfill({ json: {
+      characterAssetId: useBasePartner ? '23' : '23u', user: { name: 'Test Player · 咲弥', userCode: '123456789', rating: 12.939,
+        characterId: 23, characterUncapped: true, characterUncappedOverride: useBasePartner, avatarImageUrl: '/api/media/characters/export-avatar.png' },
+    } });
+  });
+  // An unavailable cached avatar must use the matching native partner icon.
+  await page.route('**/api/media/characters/export-avatar.png', route => route.fulfill({ status: 404, body: 'Avatar unavailable' }));
   await page.route('**/api/media/charts/song-search-test.svg', route => route.fulfill(referenceArtwork
     ? { contentType: 'image/jpeg', body: referenceArtwork }
     : { contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#6354b8"/><stop offset="1" stop-color="#8f3482"/></linearGradient></defs><path fill="url(#g)" d="M0 0h400v400H0z"/><path stroke="#fff" stroke-opacity=".35" fill="none" d="m200 40 140 240H60z"/><text x="200" y="320" fill="#fff" text-anchor="middle" font-size="26">AEGLESEEKER</text></svg>' }));
@@ -123,12 +135,16 @@ try {
   await expect(page.locator('.score-rating, .score-rank, .score-potential strong')).toHaveCount(0);
   await expect(page.locator('.score-song-id')).toHaveCount(0);
   expect(exportAssets).toEqual([]);
+  expect(profileRequests).toBe(0);
   const referenceText = await exportResult('aegleseeker');
-  expect(referenceText.map(item => item.value)).toEqual(expect.arrayContaining(['Aegleseeker', '09’960’014', '定数', '11.2', '单曲 PTT', '13.200', '1,559 (+1,469)']));
+  expect(referenceText.map(item => item.value)).toEqual(expect.arrayContaining(['Aegleseeker', '09’960’014', '定数', '11.2', '单曲 PTT', '13.200', '1,559', '(+1,469)', '11', 'Test Player · 咲弥', '123456789']));
   expect(referenceText.map(item => item.value).join(' ')).not.toMatch(/HIGH SCORE|MAX RECALL|FRAGMENT/);
   expect(exportAssets.length).toBeGreaterThan(0);
+  expect(profileRequests).toBe(1);
+  expect(partnerAssets.some(url => /\/23u(?:\.[^/]+)?\.webp/.test(url))).toBe(true);
+  expect(partnerAssets.some(url => /\/23u-icon(?:\.[^/]+)?\.webp/.test(url))).toBe(true);
   const fontRequests = exportFonts.length;
-  expect(fontRequests).toBe(3);
+  expect(fontRequests).toBe(4);
   await page.screenshot({ path: `${directory}/song-search-desktop.png`, fullPage: true });
 
   await selectOption(difficultySelect, 'BYD / INS');
@@ -137,8 +153,11 @@ try {
   await expect(page.locator('.difficulty-diamond')).toHaveText('INS');
   expect(requests.at(-1)).toEqual({ term: 'Dread & Area', difficulty: '3', page: '1', sort: 'score_below_max' });
   expect(new URL(page.url()).searchParams.get('term')).toBe('Dread & Area');
+  useBasePartner = true;
   const insText = await exportResult('inscribed');
-  expect(insText.map(item => item.value)).toEqual(expect.arrayContaining(['INS', 'INSCRIBED', '11.4', '13.400']));
+  expect(insText.map(item => item.value)).toEqual(expect.arrayContaining(['11', 'INSCRIBED', '11.4', '13.400']));
+  expect(profileRequests).toBe(2);
+  expect(partnerAssets.some(url => /\/23(?:\.[^/]+)?\.webp/.test(url))).toBe(true);
   expect(insText.find(item => item.value.includes('Extradimensional')).width).toBeLessThanOrEqual(1150);
   expect(exportFonts).toHaveLength(fontRequests);
   for (const width of [1440, 768, 390, 320]) {
@@ -181,7 +200,7 @@ try {
   await expect(page.getByRole('button', { name: '下一页' })).toBeDisabled();
   const missingConstantText = await exportResult('unlisted');
   expect(missingConstantText.filter(item => item.value === '—')).toHaveLength(2);
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.getByLabel('曲名或歌曲 ID')).toHaveValue('Arcaea');
   await expect(difficultySelect).toHaveText('FTR · Future');
   await expect(sortSelect).toHaveText('曲名');
@@ -212,12 +231,20 @@ try {
   await search('eternal');
   await expect(page.locator('.difficulty-diamond')).toHaveText('ETR');
   const eternalText = await exportResult('eternal-mobile');
-  expect(eternalText.map(item => item.value)).toEqual(expect.arrayContaining(['ETR', 'ETERNAL', '8.5', '10.500', '再见初恋 · さよなら初恋']));
+  expect(eternalText.map(item => item.value)).toEqual(expect.arrayContaining(['8', 'ETERNAL', '8.5', '10.500', '再见初恋 · さよなら初恋']));
+  failProfile = true;
+  await page.getByRole('button', { name: '导出', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('用户信息暂时不可用');
+  await expect(page.locator('.score-card')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: '导出', exact: true })).toBeEnabled();
+  failProfile = false;
+  await exportResult('profile-retry');
+  await expect(page.getByRole('alert')).toHaveCount(0);
   await page.screenshot({ path: `${directory}/song-export-mobile.png`, fullPage: true });
   const touchContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, storageState: await context.storageState() });
   const touchPage = await touchContext.newPage();
   touchPage.on('pageerror', error => errors.push(error.message));
-  await touchPage.goto(origin + '/scores');
+  await touchPage.goto(origin + '/scores', { waitUntil: 'domcontentloaded' });
   await touchPage.locator('astro-island:not([ssr])').waitFor();
   const touchDifficulty = touchPage.getByRole('combobox', { name: '谱面难度' });
   await touchDifficulty.tap();
@@ -227,5 +254,5 @@ try {
   await expect(touchPage.getByRole('listbox')).toHaveCount(0);
   await touchContext.close();
   expect(errors).toEqual([]);
-  console.log(JSON.stringify({ origin, authenticated: true, search: true, export: { png: '2560x1440', constants: true, ptt: true, inscribed: true, eternal: true, missingConstant: true, retry: true, lazyAssets: true }, filters: true, dropdown: { keyboard: true, escape: true, outsideClick: true, touch: true }, pagination: true, history: true, empty: true, retry: true, responsive: [320, 390, 768, 1440], pageErrors: errors.length }));
+  console.log(JSON.stringify({ origin, authenticated: true, search: true, export: { png: '2560x1440', constants: true, ptt: true, inscribed: true, eternal: true, missingConstant: true, retry: true, lazyAssets: true, profile: true, nativePartner: true, avatarFallback: true, partnerSwitch: true }, filters: true, dropdown: { keyboard: true, escape: true, outsideClick: true, touch: true }, pagination: true, history: true, empty: true, retry: true, responsive: [320, 390, 768, 1440], pageErrors: errors.length }));
 } finally { await browser.close(); }

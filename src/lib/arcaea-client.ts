@@ -74,6 +74,8 @@ export class ArcaeaClient {
       ...(joinDate !== undefined ? { joinDate } : {}),
       ...(characterId !== undefined ? { characterId } : {}),
       ...(characterIcon ? { characterIcon } : {}),
+      ...(typeof activeCharacter?.is_uncapped === "boolean" ? { characterUncapped: activeCharacter.is_uncapped } : {}),
+      ...(typeof activeCharacter?.is_uncapped_override === "boolean" ? { characterUncappedOverride: activeCharacter.is_uncapped_override } : {}),
     };
   }
 

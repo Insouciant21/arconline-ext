@@ -11,6 +11,7 @@ import { compareSnapshots } from "../src/lib/history-diff";
 import type { Env, JobMessage } from "../src/lib/environment";
 import type { B50Snapshot } from "../src/lib/types";
 import { publicAssetUrl } from "../src/lib/r2";
+import { characterAssetId } from "../src/lib/score-export-profile";
 
 let env: Env, sent: JobMessage[];
 function fixture(id = "2026-10-14-first", potential = 12.5): B50Snapshot {
@@ -39,7 +40,7 @@ async function deliver(message:JobMessage) {
   return {ack,retry};
 }
 function mockLowiro(snapshot = fixture()) {
-  const client={ fetchB50Snapshot:vi.fn(async()=>({user:snapshot.user,best50:snapshot.best50})), getPotentialHistory:vi.fn(async()=>[{timePlayed:Date.parse(snapshot.fetchedAt),potential:snapshot.potential}]), getBest50:vi.fn(async()=>snapshot.best50), getOnlineImage:vi.fn(async()=>({body:new Uint8Array([1,2,3]).buffer,contentType:"image/png"})), getChartImage:vi.fn(async()=>({body:new Uint8Array([1,2,3]).buffer,contentType:"image/jpeg"})), getCharacterIconImage:vi.fn(async()=>({body:new Uint8Array([1]).buffer,contentType:"image/png"})) };
+  const client={ getUser:vi.fn(async()=>({...snapshot.user})), fetchB50Snapshot:vi.fn(async()=>({user:snapshot.user,best50:snapshot.best50})), getPotentialHistory:vi.fn(async()=>[{timePlayed:Date.parse(snapshot.fetchedAt),potential:snapshot.potential}]), getBest50:vi.fn(async()=>snapshot.best50), getOnlineImage:vi.fn(async()=>({body:new Uint8Array([1,2,3]).buffer,contentType:"image/png"})), getChartImage:vi.fn(async()=>({body:new Uint8Array([1,2,3]).buffer,contentType:"image/jpeg"})), getCharacterIconImage:vi.fn(async()=>({body:new Uint8Array([1]).buffer,contentType:"image/png"})) };
   vi.spyOn(ArcaeaClient,"login").mockResolvedValue(client as unknown as ArcaeaClient);
   return client;
 }
@@ -315,6 +316,89 @@ describe("single-song queries", () => {
     expect(payload.scores[0].score).toBe(raw.score);
     expect(payload.scores[0]).not.toHaveProperty("imageUrl");
     expect(warning).toHaveBeenCalledOnce();
+  });
+});
+
+describe("score export profiles", () => {
+  it("requires authentication and GET before contacting Lowiro", async () => {
+    const upstream = vi.spyOn(ArcaeaClient, "login").mockRejectedValue(new Error("Unexpected login"));
+    expect((await api(env, request("/api/score-export/profile"))).status).toBe(401);
+    const cookie = await login();
+    expect((await api(env, request("/api/score-export/profile", "POST", cookie))).status).toBe(405);
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
+  it("selects the partner's awakened art and honors the illustration override", () => {
+    const user = { rating: 12.9, characterId: 23, characterUncapped: true, characterUncappedOverride: false };
+    expect(characterAssetId(user)).toBe("23u");
+    expect(characterAssetId({ ...user, characterUncappedOverride: true })).toBe("23");
+    expect(characterAssetId({ ...user, characterUncapped: false })).toBe("23");
+    expect(characterAssetId({ ...user, characterId: 7 })).toBe("7");
+    for (const characterId of [undefined, -1, 2.5, 99999]) {
+      expect(characterAssetId({ ...user, characterId })).toBeNull();
+    }
+  });
+
+  it("reads the active partner flags from the profile without exposing private upstream fields", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const upstream = new Request(input, init);
+      if (new URL(upstream.url).pathname === "/auth/login") {
+        return Response.json({ isLoggedIn: true }, { headers: { "set-cookie": "lowiro=private-session; Secure" } });
+      }
+      return Response.json({ value: { name: "Current Player", user_code: "123456789", rating: 12939,
+        email: "private@example.com", character: 23, character_stats: [
+          { character_id: 1, is_uncapped: false },
+          { character_id: 23, is_uncapped: true, is_uncapped_override: false, private_field: "do not expose" },
+        ] } });
+    });
+    const cookie = await login();
+    const response = await api(env, request("/api/score-export/profile", "GET", cookie));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({ characterAssetId: "23u", user: { name: "Current Player", userCode: "123456789",
+      rating: 12.939, characterId: 23, characterUncapped: true, characterUncappedOverride: false } });
+    expect(await new Store(env).latest()).toBeNull();
+    expect(sent).toHaveLength(0);
+  });
+
+  it("caches the official avatar once and serves it from the authenticated origin", async () => {
+    const snapshot = uncachedFixture();
+    snapshot.user.characterId = 23;
+    snapshot.user.characterUncapped = true;
+    const client = mockLowiro(snapshot);
+    env.R2_PUBLIC_URL = "https://images.example.com";
+    const cookie = await login();
+    for (let i = 0; i < 2; i++) {
+      const response = await api(env, request("/api/score-export/profile", "GET", cookie));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ characterAssetId: "23u", user: {
+        avatarImageUrl: `/api/media/characters/${snapshot.user.characterIcon}.png`,
+      } });
+    }
+    expect(client.getUser).toHaveBeenCalledTimes(2);
+    expect(client.getCharacterIconImage).toHaveBeenCalledExactlyOnceWith(snapshot.user.characterIcon);
+    expect(await env.ARCHIVE.head(`characters/${snapshot.user.characterIcon}.png`)).not.toBeNull();
+  });
+
+  it("keeps the matching bundled avatar available when the upstream image fails", async () => {
+    const snapshot = uncachedFixture();
+    const client = mockLowiro(snapshot);
+    client.getCharacterIconImage.mockRejectedValueOnce(new Error("Temporary icon failure"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cookie = await login();
+    const response = await api(env, request("/api/score-export/profile", "GET", cookie));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ characterAssetId: "7", user: { name: "Test" } });
+  });
+
+  it("reports an unavailable partner instead of substituting an unrelated illustration", async () => {
+    const snapshot = fixture();
+    snapshot.user.characterId = 99999;
+    mockLowiro(snapshot);
+    const cookie = await login();
+    const response = await api(env, request("/api/score-export/profile", "GET", cookie));
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ code: "CHARACTER_ART_UNAVAILABLE" });
   });
 });
 
