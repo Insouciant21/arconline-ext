@@ -126,8 +126,8 @@ export async function consume(env: Env, batch: MessageBatch<JobMessage>) {
       const deadline = Date.now() + CONTINUATION_BUDGET_MS;
       let client: Promise<ArcaeaClient> | undefined;
       const execution = {
-        // The authenticated session lives only in this invocation, never in D1
-        // or a queue message. A resumed invocation logs in again if needed.
+        // Reuse one client here; its encrypted D1 session also survives queue
+        // continuations. Cookies never enter job state or queue messages.
         getClient: () => client ??= ArcaeaClient.login(env),
         shouldYield: () => Date.now() >= deadline,
       };

@@ -3,10 +3,7 @@ import { getConfig, getArcaeaCredentials } from "./config";
 import type { Env } from "./environment";
 import type { Best50Score, LocalizedTitle, Score, SongScore, SongScoreQuery, SongScoresPayload, StoredUser } from "./types";
 import { songScoreSearchParams, SONG_SCORE_PAGE_SIZE } from "./song-query";
-
-interface ArcaeaSession {
-  cookies: string;
-}
+import { ArcaeaSessionCache, sessionFromHeaders, type ArcaeaSession } from "./arcaea-session";
 
 interface ApiEnvelope {
   success?: boolean;
@@ -22,11 +19,20 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const ARCAEA_REQUEST_TIMEOUT_MS = 30_000;
 
 export class ArcaeaClient {
-  private constructor(private readonly session: ArcaeaSession, private readonly config: ReturnType<typeof getConfig>) {}
+  private refreshing?: Promise<void>;
+
+  private constructor(private session: ArcaeaSession, private readonly config: ReturnType<typeof getConfig>,
+    private readonly sessionCache: ArcaeaSessionCache, private readonly authenticate: () => Promise<ArcaeaSession>) {}
 
   static async login(env: Env) {
     const config = getConfig(env);
     const credentials = getArcaeaCredentials(env);
+    const cache = await ArcaeaSessionCache.create(env, config, credentials);
+    const authenticate = () => ArcaeaClient.authenticate(config, credentials);
+    return new ArcaeaClient(await cache.get(authenticate), config, cache, authenticate);
+  }
+
+  private static async authenticate(config: ReturnType<typeof getConfig>, credentials: ReturnType<typeof getArcaeaCredentials>) {
     const response = await fetch(`${config.arcaeaApiBase}/auth/login`, {
       method: "POST",
       headers: {
@@ -47,12 +53,12 @@ export class ArcaeaClient {
       throw new AppError(`Arcaea 登录失败（HTTP ${response.status}${code}），请检查账号配置或账号状态。`, 502, "ARCAEA_LOGIN_FAILED");
     }
 
-    const cookies = getSetCookieHeader(response.headers);
-    if (!cookies) {
+    const session = sessionFromHeaders(response.headers);
+    if (!session) {
       throw new AppError("Arcaea 登录成功但没有返回会话 Cookie。", 502, "ARCAEA_SESSION_MISSING");
     }
 
-    return new ArcaeaClient({ cookies }, config);
+    return session;
   }
 
   async getUser(): Promise<StoredUser> {
@@ -165,11 +171,13 @@ export class ArcaeaClient {
     return { user, best50 };
   }
 
-  private async request<T extends ApiEnvelope>(path: string) {
+  private async request<T extends ApiEnvelope>(path: string, retrySession = true): Promise<T> {
+    if (this.refreshing) await this.refreshing;
+    const session = this.session;
     const response = await fetch(`${this.config.arcaeaApiBase}${path}`, {
       headers: {
         accept: "application/json",
-        cookie: this.session.cookies,
+        cookie: session.cookies,
         origin: this.config.arcaeaWebBase,
         referer: `${this.config.arcaeaWebBase}/zh/profile/potential`,
         "user-agent": this.config.arcaeaUserAgent,
@@ -177,11 +185,30 @@ export class ArcaeaClient {
       signal: AbortSignal.timeout(ARCAEA_REQUEST_TIMEOUT_MS),
       redirect: "manual",
     });
-    const payload = await parseJson<T>(response);
+    // Lowiro returns error 203 (HTTP 400) without a session. A bare 403 may be
+    // a subscription/WAF failure and must not cause repeated password logins.
+    const payload = response.status === 401 ? undefined : await parseJson<T>(response);
+    if (response.status === 401 || payload?.isLoggedIn === false ||
+        (payload?.success === false && payload.error_code === 203)) {
+      if (response.status === 401) await response.body?.cancel();
+      if (!retrySession) {
+        await this.sessionCache.invalidate(session);
+        throw new AppError("Arcaea 会话已失效，请稍后重试。", 502, "ARCAEA_SESSION_EXPIRED");
+      }
+      await this.refreshSession(session);
+      return this.request<T>(path, false);
+    }
     if (!response.ok) {
       throw new AppError(`Arcaea 接口请求失败（${response.status}）。`, 502, "ARCAEA_API_FAILED");
     }
-    return payload;
+    return payload!;
+  }
+
+  private async refreshSession(rejected: ArcaeaSession) {
+    if (this.session !== rejected) return;
+    this.refreshing ??= this.sessionCache.get(this.authenticate, rejected)
+      .then(session => { this.session = session; this.refreshing = undefined; });
+    await this.refreshing;
   }
 
   private async fetchImage(imageUrl: string, kind: ImageKind) {
@@ -318,17 +345,6 @@ async function parseJson<T>(response: Response) {
   } catch {
     throw new AppError("Arcaea 返回了无法解析的响应。", 502, "ARCAEA_RESPONSE_INVALID");
   }
-}
-
-function getSetCookieHeader(headers: Headers) {
-  const extendedHeaders = headers as Headers & { getSetCookie?: () => string[] };
-  const setCookies = extendedHeaders.getSetCookie?.() || [];
-  if (setCookies.length > 0) return setCookies.map((cookie) => cookie.split(";", 1)[0]).join("; ");
-  const single = headers.get("set-cookie");
-  return single
-    ?.split(/,\s*(?=[^;,]+=)/)
-    .map((cookie) => cookie.split(";", 1)[0])
-    .join("; ");
 }
 
 function isAllowedLowiroHost(hostname: string) {
