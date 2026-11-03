@@ -93,7 +93,7 @@ try {
     await download.saveAs(path);
     const bytes = await readFile(path);
     expect(bytes.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
-    expect([bytes.readUInt32BE(16), bytes.readUInt32BE(20)]).toEqual([2560, 1440]);
+    expect([bytes.readUInt32BE(16), bytes.readUInt32BE(20)]).toEqual([3124, 1440]);
     await expect(page.getByRole('button', { name: '导出', exact: true })).toBeEnabled();
     return page.evaluate(() => window.__exportText);
   }
@@ -137,7 +137,7 @@ try {
   expect(exportAssets).toEqual([]);
   expect(profileRequests).toBe(0);
   const referenceText = await exportResult('aegleseeker');
-  expect(referenceText.map(item => item.value)).toEqual(expect.arrayContaining(['Aegleseeker', '09’960’014', '定数', '11.2', '单曲 PTT', '13.200', '1,559', '(+1,469)', '11', 'Test Player · 咲弥', '123456789']));
+  expect(referenceText.map(item => item.value)).toEqual(expect.arrayContaining(['Aegleseeker', '09’960’014', '定数', '11.2', '单曲 PTT', '13.200', '1,559', '(+1,469)', '11', 'Test Player · 咲弥', '12.939']));
   expect(referenceText.map(item => item.value).join(' ')).not.toMatch(/HIGH SCORE|MAX RECALL|FRAGMENT/);
   expect(exportAssets.length).toBeGreaterThan(0);
   expect(profileRequests).toBe(1);
@@ -254,5 +254,5 @@ try {
   await expect(touchPage.getByRole('listbox')).toHaveCount(0);
   await touchContext.close();
   expect(errors).toEqual([]);
-  console.log(JSON.stringify({ origin, authenticated: true, search: true, export: { png: '2560x1440', constants: true, ptt: true, inscribed: true, eternal: true, missingConstant: true, retry: true, lazyAssets: true, profile: true, nativePartner: true, avatarFallback: true, partnerSwitch: true }, filters: true, dropdown: { keyboard: true, escape: true, outsideClick: true, touch: true }, pagination: true, history: true, empty: true, retry: true, responsive: [320, 390, 768, 1440], pageErrors: errors.length }));
+  console.log(JSON.stringify({ origin, authenticated: true, search: true, export: { png: '3124x1440', constants: true, ptt: true, inscribed: true, eternal: true, missingConstant: true, retry: true, lazyAssets: true, profile: true, nativePartner: true, avatarFallback: true, partnerSwitch: true }, filters: true, dropdown: { keyboard: true, escape: true, outsideClick: true, touch: true }, pagination: true, history: true, empty: true, retry: true, responsive: [320, 390, 768, 1440], pageErrors: errors.length }));
 } finally { await browser.close(); }
