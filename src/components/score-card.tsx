@@ -13,10 +13,10 @@ import {
   shinyPureCount,
 } from "@/lib/utils";
 
-export const ScoreCard = memo(function ScoreCard({ score, rank, detailAction }: { score: Best50Score | SongScore; rank?: number; detailAction?: ReactNode }) {
+export const ScoreCard = memo(function ScoreCard({ score, rank, detailAction, chartConstant: suppliedConstant }: { score: Best50Score | SongScore; rank?: number; detailAction?: ReactNode; chartConstant?: number | null }) {
   const title = score.title.zh || score.title.en || score.title.ja || score.songId;
   const playedAt = score.timePlayed > 0 ? formatRelativeDate(score.timePlayed) : "—";
-  const chartConstant = "rating" in score ? chartConstantFromScore(score) : null;
+  const chartConstant = suppliedConstant ?? ("rating" in score ? chartConstantFromScore(score) : null);
 
   return (
     <article className="score-card" aria-label={`${rank ? `${rank} ` : ""}${title} ${difficultyCode(score.difficulty, score.difficultyAlias)}`}>

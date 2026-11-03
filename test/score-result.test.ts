@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { chartConstantForSong, resultGrade, scoreResultData } from "../src/lib/score-result";
+import { chartConstantForSong } from "../src/lib/chart-constants";
+import { resultGrade, scoreResultData } from "../src/lib/score-result";
 import { chartConstantFromScore, playRatingFromConstant } from "../src/lib/utils";
 import type { SongScore } from "../src/lib/types";
 

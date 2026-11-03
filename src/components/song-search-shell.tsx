@@ -7,6 +7,7 @@ import { ScoreCard } from "@/components/score-card";
 import { ScoreExportButton } from "@/components/score-export-button";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
+import { chartConstantForSong } from "@/lib/chart-constants";
 import { parseSongScoreQuery, songScoreSearchParams, songScoreSorts, SONG_SCORE_PAGE_SIZE, SONG_SEARCH_MAX_LENGTH } from "@/lib/song-query";
 import type { SongScoreQuery, SongScoresPayload } from "@/lib/types";
 import { difficultyCode } from "@/lib/utils";
@@ -137,7 +138,7 @@ export function SongSearchShell() {
           {!loading && !error && data && query ? data.scores.length ? (
             <>
               <div className="score-grid song-search-grid">
-                {data.scores.map(score => <ScoreCard key={`${score.songId}:${score.difficulty}`} score={score} detailAction={<ScoreExportButton score={score} />} />)}
+                {data.scores.map(score => <ScoreCard key={`${score.songId}:${score.difficulty}`} score={score} chartConstant={chartConstantForSong(score.songId, score.difficulty)} detailAction={<ScoreExportButton score={score} />} />)}
               </div>
               {totalPages > 1 ? <nav className="song-search-pagination" aria-label="成绩分页">
                 <Button variant="secondary" size="sm" disabled={query.page <= 1} onClick={() => search({ ...query, page: query.page - 1 })}><ChevronLeft size={14} />上一页</Button>

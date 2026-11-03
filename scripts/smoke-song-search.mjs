@@ -138,7 +138,9 @@ try {
   await expect(page.locator('.score-number strong')).toHaveText('9,960,014');
   await expect(page.locator('.score-count-bonus')).toHaveText('(+1,469)');
   await expect(page.locator('.song-score-meta')).toContainText('年内游玩 8 次');
-  await expect(page.locator('.score-rating, .score-rank, .score-potential strong')).toHaveCount(0);
+  await expect(page.locator('.score-potential strong')).toHaveText('11.2');
+  await expect(page.locator('.score-potential')).toHaveAttribute('aria-label', '谱面定数 11.2');
+  await expect(page.locator('.score-rating, .score-rank')).toHaveCount(0);
   await expect(page.locator('.score-song-id')).toHaveCount(0);
   expect(exportAssets).toEqual([]);
   expect(profileRequests).toBe(0);
@@ -162,6 +164,7 @@ try {
   await selectOption(sortSelect, '距理论值');
   await search('Dread & Area');
   await expect(page.locator('.difficulty-diamond')).toHaveText('INS');
+  await expect(page.locator('.score-potential strong')).toHaveText('11.4');
   expect(requests.at(-1)).toEqual({ term: 'Dread & Area', difficulty: '3', page: '1', sort: 'score_below_max' });
   expect(new URL(page.url()).searchParams.get('term')).toBe('Dread & Area');
   useBasePartner = true;
@@ -178,6 +181,9 @@ try {
     const art = page.locator('.score-art');
     const card = page.locator('.score-card');
     const artRect = await art.boundingBox(), cardRect = await card.boundingBox();
+    const constantRect = await page.locator('.score-potential').boundingBox();
+    expect(constantRect.x).toBeGreaterThanOrEqual(artRect.x);
+    expect(constantRect.x + constantRect.width).toBeLessThanOrEqual(artRect.x + artRect.width + 1);
     if (width > 620) expect(Math.abs(artRect.width - artRect.height)).toBeLessThanOrEqual(1);
     else {
       expect(Math.abs(artRect.x - cardRect.x - 1)).toBeLessThanOrEqual(1);
@@ -210,6 +216,8 @@ try {
   await expect(page.locator('.score-card')).toHaveCount(1);
   await expect(page.locator('.song-search-pagination')).toContainText('第 2 / 2 页');
   await expect(page.getByRole('button', { name: '下一页' })).toBeDisabled();
+  await expect(page.locator('.score-potential strong')).toHaveCount(0);
+  await expect(page.locator('.difficulty-diamond')).toHaveText('FTR');
   const missingConstantText = await exportResult('unlisted');
   expect(missingConstantText.filter(item => item.value === '—')).toHaveLength(2);
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -242,6 +250,7 @@ try {
   await selectOption(difficultySelect, 'ETR · Eternal');
   await search('eternal');
   await expect(page.locator('.difficulty-diamond')).toHaveText('ETR');
+  await expect(page.locator('.score-potential strong')).toHaveText('8.5');
   const eternalText = await exportResult('eternal-mobile');
   expect(eternalText.map(item => item.value)).toEqual(expect.arrayContaining(['8', 'ETERNAL', '8.5', '10.500', '再见初恋 · さよなら初恋']));
   failProfile = true;

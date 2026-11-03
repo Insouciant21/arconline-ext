@@ -1,20 +1,13 @@
-import chartConstants from "./chart-constants.json";
+import { chartConstantForSong } from "./chart-constants";
 import chartLevels from "./score-result-levels.json";
 import type { SongScore } from "./types";
 import { difficultyCode, playRatingFromConstant } from "./utils";
 
-type ChartConstant = { constant: number; old: boolean } | null;
-const constants: Record<string, ChartConstant[]> = chartConstants;
 const levels: Record<string, Array<string | null>> = chartLevels;
 const playedAtFormatter = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
   hour: "2-digit", minute: "2-digit", hourCycle: "h23",
 });
-
-export function chartConstantForSong(songId: string, difficulty: number) {
-  if (!Object.hasOwn(constants, songId) || !Number.isInteger(difficulty) || difficulty < 0 || difficulty > 4) return null;
-  return constants[songId][difficulty]?.constant ?? null;
-}
 
 export function resultGrade(score: number): "explus" | "ex" | "aa" | "a" | "b" | "c" | "d" {
   if (score >= 9_900_000) return "explus";
