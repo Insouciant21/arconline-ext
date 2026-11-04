@@ -58,9 +58,10 @@ export class Store {
       })),
     }));
   }
-  async writeSnapshot(snapshot: B50Snapshot) {
+  async writeSnapshot(snapshot: B50Snapshot, caches: CacheWrite[] = []) {
     const date = getLocalDate(snapshot.fetchedAt, getConfig(this.env).timezone);
     await this.env.DB.batch([
+      ...this.cacheStatements(caches),
       this.sql(`INSERT INTO snapshots(id,fetched_at,local_date,potential,fingerprint,body) VALUES(?,?,?,?,?,?)
         ON CONFLICT(id) DO UPDATE SET fetched_at=excluded.fetched_at,local_date=excluded.local_date,
         potential=excluded.potential,fingerprint=excluded.fingerprint,body=excluded.body,backed_up=0`,
@@ -119,8 +120,11 @@ export class Store {
     await this.sql("INSERT INTO cache(kind,key,body) VALUES(?,?,?) ON CONFLICT(kind,key) DO UPDATE SET body=excluded.body", kind, key, JSON.stringify(value)).run();
   }
   async putCaches(entries: CacheWrite[]) {
-    if (entries.length) await this.env.DB.batch(entries.map(({ kind, key, value }) =>
-      this.sql("INSERT INTO cache(kind,key,body) VALUES(?,?,?) ON CONFLICT(kind,key) DO UPDATE SET body=excluded.body", kind, key, JSON.stringify(value))));
+    if (entries.length) await this.env.DB.batch(this.cacheStatements(entries));
+  }
+  private cacheStatements(entries: CacheWrite[]) {
+    return entries.map(({ kind, key, value }) =>
+      this.sql("INSERT INTO cache(kind,key,body) VALUES(?,?,?) ON CONFLICT(kind,key) DO UPDATE SET body=excluded.body", kind, key, JSON.stringify(value)));
   }
   async aliases(scores: Best50Score[]) {
     const statements = scores.filter(score => score.difficultyAlias !== undefined).map(score =>

@@ -19,6 +19,8 @@ export interface SyncExecution {
   getClient: () => Promise<ArcaeaClient>;
   shouldYield: () => boolean;
   profiling?: Profiler;
+  // Reuse only within this queue invocation. A redelivery always reloads D1.
+  snapshot?: B50Snapshot;
 }
 
 export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncState) => Promise<void>, execution?: SyncExecution): Promise<StepResult> {
@@ -26,13 +28,23 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
   const profiling = execution?.profiling;
   let client: Promise<ArcaeaClient> | undefined;
   const getClient = execution?.getClient ?? (() => client ??= ArcaeaClient.login(env));
+  const loadSnapshot = async (id: string) => {
+    if (execution?.snapshot?.id === id) return execution.snapshot;
+    const snapshot = await store.snapshot(id);
+    if (execution && snapshot) execution.snapshot = snapshot;
+    return snapshot;
+  };
+  const saveSnapshot = async (snapshot: B50Snapshot) => {
+    await store.writeSnapshot(snapshot);
+    if (execution) execution.snapshot = snapshot;
+  };
   if (job.stage === "fetch") {
     if (job.kind === "retry") {
-      const snapshot = state.snapshotId ? await store.snapshot(state.snapshotId) : await store.latest();
+      const snapshot = state.snapshotId ? await loadSnapshot(state.snapshotId) : await store.latest();
       if (!snapshot) throw new AppError("没有可重试的快照。", 404, "SNAPSHOT_MISSING");
       state.snapshotId = snapshot.id;
       snapshot.mediaStatus = "processing"; delete snapshot.mediaError;
-      await store.writeSnapshot(snapshot);
+      await saveSnapshot(snapshot);
       state.media = mediaItems(snapshot);
       await checkpoint(state);
       return { stage: "media", state };
@@ -44,7 +56,7 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
     }
     // Reuse a checkpoint if the worker stopped after the score write.
     const snapshotId = state.snapshotId || `${getLocalDate(job.created_at, getConfig(env).timezone)}-${job.id}`;
-    const saved = await store.snapshot(snapshotId);
+    const saved = await loadSnapshot(snapshotId);
     if (saved) {
       state.snapshotId = saved.id; state.media = mediaItems(saved); state.historyPending = true;
       await checkpoint(state);
@@ -71,7 +83,7 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
       state.preview = snapshot; state.duplicateOf = previous.id;
     } else {
       state.snapshotId = snapshot.id;
-      await store.writeSnapshot(snapshot);
+      await saveSnapshot(snapshot);
       state.media = mediaItems(snapshot);
       state.historyPending = true;
     }
@@ -80,7 +92,7 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
     return { stage: "profile", state };
   }
   if (job.stage === "profile") {
-    const snapshot = state.preview ?? (state.snapshotId ? await store.snapshot(state.snapshotId) : null);
+    const snapshot = state.preview ?? (state.snapshotId ? await loadSnapshot(state.snapshotId) : null);
     if (!snapshot) throw new AppError("任务快照不存在。", 404, "SNAPSHOT_MISSING");
     // For unchanged scores these operations are independent. Settle both before
     // retrying, so no upload or history write can escape the durable invocation.
@@ -92,7 +104,7 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
     if (results[1].status === "rejected") throw results[1].reason;
     snapshot.user = results[0].value;
     if (state.preview) state.preview = snapshot;
-    else await store.writeSnapshot(snapshot);
+    else await saveSnapshot(snapshot);
     // The caller commits this state and the next stage atomically. An additional
     // checkpoint here would write the same complete B50 twice in succession.
     if (state.preview) state.historyPending = false;
@@ -106,7 +118,7 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
     return { stage: "media", state };
   }
   if (job.stage === "media") {
-    const snapshot = state.snapshotId ? await store.snapshot(state.snapshotId) : null;
+    const snapshot = state.snapshotId ? await loadSnapshot(state.snapshotId) : null;
     if (!snapshot) throw new AppError("任务快照不存在。", 404, "SNAPSHOT_MISSING");
     const mediaExecution = { getClient, shouldYield: execution?.shouldYield ?? (() => false) };
     if (state.historyPending) {
@@ -123,7 +135,9 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
         // Uploads ahead of it will be recovered by their deterministic R2 keys.
         const progress = results[0].status === "fulfilled" ? state : persisted;
         progress.historyPending = false;
-        await checkpoint(progress);
+        // Successful work is committed with the next durable stage below.
+        // On media failure, retain history completion with the last checkpoint.
+        if (results[0].status === "rejected") await checkpoint(progress);
       }
       const failure = results.find(result => result.status === "rejected");
       if (failure?.status === "rejected") throw failure.reason;
@@ -136,10 +150,12 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
     let snapshot: B50Snapshot | null = null;
     const finalizers: Promise<unknown>[] = [];
     if (state.snapshotId) {
-      snapshot = await store.snapshot(state.snapshotId);
+      snapshot = await loadSnapshot(state.snapshotId);
       if (!snapshot) throw new Error("Snapshot missing during archive");
-      snapshot.mediaStatus = "complete"; delete snapshot.mediaError;
-      await store.writeSnapshot(snapshot);
+      if (snapshot.mediaStatus !== "complete" || snapshot.mediaError) {
+        snapshot.mediaStatus = "complete"; delete snapshot.mediaError;
+        await saveSnapshot(snapshot);
+      }
       finalizers.push(store.backup(snapshot));
     }
     finalizers.push(measure(profiling, "archive.export", () => store.exportArchive()));
@@ -186,11 +202,15 @@ async function processMedia(store: Store, snapshot: B50Snapshot, state: SyncStat
         } catch (error) { failed = true; throw error; }
       }
     }));
-    await store.putCaches(writes);
     snapshot.imageStats = mediaStats(items);
-    await store.writeSnapshot(snapshot);
-    await checkpoint(state);
     const failure = results.find(result => result.status === "rejected");
+    snapshot.mediaStatus = items.every(item => item.done) ? "complete" : "processing";
+    // Cache entries and their owning snapshot advance together in one D1 batch.
+    await store.writeSnapshot(snapshot, writes);
+    // Partial and failed groups retain checkpoints. The final successful group
+    // is persisted by the caller's atomic stage transition; R2 keys also allow
+    // recovery if the invocation stops between the snapshot and that commit.
+    if (failure || i + 4 < pending.length) await checkpoint(state);
     if (failure?.status === "rejected") throw failure.reason;
     if (execution.shouldYield()) break;
   }

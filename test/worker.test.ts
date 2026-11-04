@@ -818,6 +818,18 @@ describe("D1 archives",()=>{
     const history = await (await env.ARCHIVE.get("exports/ptt-history.json"))!.json<Array<{ potential: number }>>();
     expect(history.at(-1)?.potential).toBe(13.1);
   });
+  it("rolls media cache entries back when their snapshot transaction fails", async () => {
+    const store = new Store(env), snapshot = fixture();
+    await store.writeSnapshot(snapshot);
+    const changed = structuredClone(snapshot);
+    changed.best50[0].imageKey = "charts/new.jpg";
+    await env.DB.prepare("CREATE TRIGGER reject_snapshot_update BEFORE UPDATE ON snapshots BEGIN SELECT RAISE(ABORT,'injected snapshot failure'); END").run();
+    try {
+      await expect(store.writeSnapshot(changed, [{ kind: "chart", key: "new", value: { imageKey: "charts/new.jpg" } }])).rejects.toThrow();
+      expect((await store.cache("chart", ["new"])).new).toBeUndefined();
+      expect((await store.snapshot(snapshot.id))?.best50[0].imageKey).toBeUndefined();
+    } finally { await env.DB.prepare("DROP TRIGGER reject_snapshot_update").run(); }
+  });
   it("settles all archive writes before retrying a failed export", async () => {
     const store = new Store(env);await store.writeSnapshot(fixture());
     const original = env.ARCHIVE.put.bind(env.ARCHIVE), failure = new Error("R2 temporarily unavailable");
@@ -908,9 +920,9 @@ describe("durable queue pipeline",()=>{
     vi.spyOn(console, "error").mockImplementation(() => {});
     const client = mockLowiro(uncachedFixture()), original = Store.prototype.writeSnapshot;
     let fail = true;
-    vi.spyOn(Store.prototype, "writeSnapshot").mockImplementation(async function(snapshot) {
+    vi.spyOn(Store.prototype, "writeSnapshot").mockImplementation(async function(snapshot, caches) {
       if (fail && snapshot.imageStats.uploaded > 0) { fail = false;throw new Error("Temporary snapshot write failure"); }
-      return original.call(this, snapshot);
+      return original.call(this, snapshot, caches);
     });
     const job = await enqueue(env, "sync");await deliver(sent.shift()!);
     expect((await getJob(env, job.jobId)).status).toBe("queued");
@@ -942,6 +954,38 @@ describe("durable queue pipeline",()=>{
     expect(result.status).toBe("succeeded");expect(result.result?.recorded).toBe(true);
     expect(await env.ARCHIVE.head(`snapshots/${result.result!.snapshot!.id}.json`)).not.toBeNull();
     expect(await env.ARCHIVE.head("exports/b50-history.json")).not.toBeNull();
+  });
+  it("recovers the last completed media group if its stage commit fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const store = new Store(env), previous = fixture();
+    previous.best50.forEach(score => { score.imageKey = `charts/${score.bg}.jpg`; });
+    previous.potentialImageKey = `potential/${previous.id}.image`;
+    await store.writeSnapshot(previous);
+    const remote = structuredClone(previous);
+    remote.best50.forEach(score => { delete score.imageKey; });
+    remote.best50[0].score++;
+    remote.best50[0].bg = "f".repeat(32);
+    const client = mockLowiro(remote), original = Store.prototype.sql;
+    let fail = true;
+    vi.spyOn(Store.prototype, "sql").mockImplementation(function(query, ...values) {
+      if (fail && query.includes("UPDATE jobs SET status=?,stage=") && values[1] === "archive") {
+        fail = false;
+        return this.env.DB.prepare("SELECT * FROM missing_stage_commit_fixture");
+      }
+      return original.call(this, query, ...values);
+    });
+    const job = await enqueue(env, "sync");
+    await deliver(sent.shift()!);
+    expect(await getJob(env, job.jobId)).toMatchObject({ status: "queued", stage: "media" });
+    await deliver(sent.shift()!);
+    const result = await getJob(env, job.jobId);
+    expect(result.status).toBe("succeeded");
+    expect(result.result?.snapshot?.mediaStatus).toBe("complete");
+    expect(result.result?.snapshot?.best50[0]).toMatchObject({ score: remote.best50[0].score, imageKey: `charts/${"f".repeat(32)}.jpg` });
+    expect(client.fetchB50Snapshot).toHaveBeenCalledTimes(1);
+    expect(client.getOnlineImage).toHaveBeenCalledTimes(1);
+    expect(client.getChartImage).toHaveBeenCalledExactlyOnceWith("f".repeat(32));
+    expect(await env.ARCHIVE.head(`snapshots/${result.result!.snapshot!.id}.json`)).not.toBeNull();
   });
   it("resumes a previously queued history stage without fetching B50 again", async () => {
     const snapshot = fixture(), store = new Store(env), client = mockLowiro();
@@ -991,11 +1035,15 @@ describe("durable queue pipeline",()=>{
     expect(sent[0].step).toBe(step);expect(step).toBeGreaterThan(original.step);
     expect((await deliver(original)).ack).toHaveBeenCalledOnce();
     await env.DB.prepare("UPDATE jobs SET status='running',lease_token='abandoned',lease_until=0,attempts=1 WHERE id=?").bind(job.jobId).run();
+    const row = await new Store(env).sql("SELECT state FROM jobs WHERE id=?", job.jobId).first<string>("state");
+    const saved = (await new Store(env).snapshot(JSON.parse(row!).snapshotId))!;
+    saved.user.name = "Updated between deliveries";
+    await new Store(env).writeSnapshot(saved);
     sent.length = 0;elapsed = 0;
     client.getChartImage.mockImplementation(async () => ({ body: new Uint8Array([1]).buffer, contentType: "image/jpeg" }));
     await recover(env);expect(sent[0].step).toBe(step);
     await deliver(sent.shift()!);
-    expect((await getJob(env, job.jobId)).status).toBe("succeeded");
+    expect(await getJob(env, job.jobId)).toMatchObject({ status: "succeeded", result: { snapshot: { user: { name: "Updated between deliveries" } } } });
     expect(ArcaeaClient.login).toHaveBeenCalledTimes(2);
     expect(client.fetchB50Snapshot).toHaveBeenCalledTimes(1);
     expect(client.getChartImage).toHaveBeenCalledTimes(50);expect(client.getOnlineImage).toHaveBeenCalledTimes(1);
