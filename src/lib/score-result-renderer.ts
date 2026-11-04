@@ -6,10 +6,12 @@ import cjkFont from "@/assets/score-result/result-cjk.woff2?url";
 import numberFont from "@/assets/score-result/result-number.woff2?url";
 import numberMediumFont from "@/assets/score-result/result-number-medium.woff2?url";
 import type { ImageMetadata } from "astro";
-import type { Best50Score, ScoreExportProfile, SongScore } from "./types";
+import type { Best50Score, ScoreExportHint, ScoreExportProfile, SongScore } from "./types";
+import { characterAssetId } from "./score-result-character";
 import { clearTypeLabel, difficultyCode, difficultyLabel } from "./utils";
 import { scoreResultData } from "./score-result";
 import bannerPalettes from "./score-result-banners.json";
+import commonUi from "./score-result-ui.json";
 
 const grades = { d: "grade-d.webp", c: "grade-c.webp", b: "grade-b.webp", a: "grade-a.webp", aa: "grade-aa.webp", ex: "grade-ex.webp", explus: "grade-explus.webp" };
 const clears = { fail: "clear-fail.webp", normal: "clear-normal.webp", full: "clear-full.webp", pure: "clear-pure.webp" };
@@ -17,6 +19,7 @@ const difficulties = { PST: "difficulty-pst.webp", PRS: "difficulty-prs.webp", F
 // Vite emits URLs for every available partner; only the selected pair is fetched.
 const partners = import.meta.glob<ImageMetadata>("../assets/score-result/characters/*.webp", { eager: true, import: "default" });
 const potentialBadges = import.meta.glob<ImageMetadata>("../assets/score-result/potential-*.webp", { eager: true, import: "default" });
+const nativeVariants = import.meta.glob<ImageMetadata>("../assets/score-result/{grade,clear,difficulty}-*.webp", { eager: true, import: "default" });
 // Native nameplate text/shadow colors for the banners included in the APK.
 const nameplateColors: Record<string, { color: string; shadow: string }> = bannerPalettes;
 const textFamily = '"Arcaea Result Text", "Arcaea Result CJK", sans-serif';
@@ -84,13 +87,14 @@ function loadNativeImage(name: string) {
   const key = `native:${name}`;
   const cached = images.get(key);
   if (cached) return cached;
-  if (!uiPack) {
+  const variant = nativeVariants[`../assets/score-result/${name}`];
+  if (!variant && !uiPack) {
     uiPack = fetch(uiPackUrl, { signal: AbortSignal.timeout(20_000) }).then(async response => {
       if (!response.ok) throw new Error("结算素材加载失败，请重试导出。");
       return response.json() as Promise<Record<string, string>>;
     }).catch(error => { uiPack = undefined; throw error; });
   }
-  const operation = uiPack.then(pack => {
+  const operation = variant ? decodeImage(variant.src) : uiPack!.then(pack => {
     const src = pack[name];
     if (!src?.startsWith("data:image/webp;base64,")) throw new Error("结算素材不完整，请重试导出。");
     return decodeImage(src);
@@ -100,14 +104,21 @@ function loadNativeImage(name: string) {
   return operation;
 }
 
-export function preloadScoreResultAssets() {
+export function preloadScoreResultAssets(hint?: ScoreExportHint) {
   if (!warmAssets) {
     warmAssets = Promise.all([
-      ...["background", "banner", "count-pure", "count-far", "count-lost", "score-panel", "user-panel", "avatar-frame", "top-bar", "bottom-bar", "footer-strip"].map(name => loadNativeImage(`${name}.webp`)),
+      ...commonUi.map(name => loadNativeImage(name)),
       loadFonts(),
     ]).catch(error => { warmAssets = undefined; throw error; });
   }
-  return warmAssets;
+  if (!hint) return warmAssets;
+  const id = characterAssetId(hint), illustration = id && partners[`../assets/score-result/characters/${id}.webp`];
+  return Promise.all([
+    warmAssets,
+    ...(illustration ? [loadImage(illustration.src)] : []),
+    ...(Number.isFinite(hint.rating) ? [loadImage(potentialBadge(hint.rating).src)] : []),
+    ...(/^[a-f0-9]{32}$/i.test(hint.bannerResource ?? "") ? [loadImage(`/api/media/banners/${hint.bannerResource}.png`)] : []),
+  ]);
 }
 
 function loadImage(src: string, artwork = false) {
@@ -134,6 +145,7 @@ function decodeImage(src: string, artwork = false) {
     image.onload = () => { clean(); resolve(image); };
     image.onerror = () => { clean(); reject(new Error(message)); };
     image.decoding = "async";
+    image.fetchPriority = "high";
     image.src = src;
   });
 }

@@ -2,12 +2,18 @@ import { ArcaeaClient } from "./arcaea-client";
 import type { Env } from "./environment";
 import { publicAssetUrl, putAsset } from "./r2";
 import { parseSongScoreQuery } from "./song-query";
-import type { SongScoresPayload } from "./types";
+import type { SongScoresPayload, StoredUser } from "./types";
+import { Store } from "./store";
+import { scoreExportHint } from "./score-result-character";
 
 export async function getSongScores(env: Env, params: URLSearchParams): Promise<SongScoresPayload> {
   const query = parseSongScoreQuery(params);
-  const client = await ArcaeaClient.login(env);
-  const result = await client.getSongScores(query);
+  const [{ client, result }, profile] = await Promise.all([
+    ArcaeaClient.login(env).then(async client => ({ client, result: await client.getSongScores(query) })),
+    // This local hint overlaps the upstream query and never adds another login.
+    // A failed speculative read must not discard successfully fetched scores.
+    new Store(env).cache<StoredUser>("score-export", ["profile"]).then(cached => cached.profile).catch(() => undefined),
+  ]);
   const images = new Map<string, string>();
   const backgrounds = [...new Set(result.scores.map(score => score.bg).filter((bg): bg is string => Boolean(bg && /^[a-f0-9]{32}$/i.test(bg))))];
   // Reuse B50 artwork; fetch missing covers in pairs with the same Lowiro session.
@@ -28,6 +34,7 @@ export async function getSongScores(env: Env, params: URLSearchParams): Promise<
   }
   return {
     ...result,
+    ...(profile ? { exportHint: scoreExportHint(profile) } : {}),
     scores: result.scores.map(score => {
       const imageKey = score.bg ? images.get(score.bg) : undefined;
       return { ...score, ...(imageKey ? { imageKey, imageUrl: publicAssetUrl(env, imageKey) } : {}) };

@@ -43,6 +43,7 @@ export interface SongScoreQuery {
 export interface SongScoresPayload {
   scores: SongScore[];
   count: number;
+  exportHint?: ScoreExportHint;
 }
 
 export interface StoredUser {
@@ -67,6 +68,8 @@ export interface ScoreExportProfile {
   characterAssetId: string;
   bannerImageUrl?: string;
 }
+
+export type ScoreExportHint = Pick<StoredUser, "rating" | "characterId" | "characterUncapped" | "characterUncappedOverride" | "bannerResource">;
 
 export interface ImageStats {
   requested: number;
@@ -157,6 +160,7 @@ export interface JobView {
   progress: { completed: number; total: number };
   createdAt: string;
   updatedAt: string;
+  timings?: import("./profiling").TimingSpan[];
   result?: { snapshot?: B50Snapshot; recorded?: boolean; duplicateOf?: string; message: string };
   error?: string;
 }

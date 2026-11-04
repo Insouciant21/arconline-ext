@@ -10,6 +10,7 @@ import { chartConstantForSong } from "@/lib/chart-constants";
 import { parseSongScoreQuery, songScoreSearchParams, songScoreSorts, SONG_SCORE_PAGE_SIZE, SONG_SEARCH_MAX_LENGTH } from "@/lib/song-query";
 import type { SongScoreQuery, SongScoresPayload } from "@/lib/types";
 import { difficultyCode } from "@/lib/utils";
+import { setScoreExportHint } from "@/lib/score-export-client";
 
 const difficulties = [
   { value: "0", label: "PST · Past" },
@@ -67,7 +68,10 @@ export function SongSearchShell() {
         }
         const payload = await response.json() as SongScoresPayload & { error?: string };
         if (!response.ok) throw new Error(payload.error || "查询失败，请稍后重试。");
-        if (!controller.signal.aborted) setData(payload);
+        if (!controller.signal.aborted) {
+          setScoreExportHint(payload.exportHint);
+          setData(payload);
+        }
       } catch (caught) {
         if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : "查询失败，请稍后重试。");
       } finally {

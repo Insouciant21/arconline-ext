@@ -143,12 +143,17 @@ export class Store {
   async exportArchive() {
     // Counts detect new rows; writes also invalidate the fingerprint when an
     // existing snapshot or official PTT point changes in place.
-    const [snapshots, points] = await Promise.all([
-      this.sql("SELECT COUNT(*) AS n, MAX(rowid) AS m FROM snapshots").first<{ n: number; m: number }>(),
-      this.sql("SELECT COUNT(*) AS n, MAX(rowid) AS m FROM ptt_points").first<{ n: number; m: number }>(),
-    ]);
-    const fingerprint = `${snapshots?.n ?? 0}:${snapshots?.m ?? 0}:${points?.n ?? 0}:${points?.m ?? 0}`;
-    if ((await this.cache<string>("export")).fingerprint === fingerprint) return;
+    // Read both counts and the previous fingerprint in one D1 round trip and
+    // one SQLite snapshot. Existing-row changes still invalidate this cache.
+    const counts = await this.sql(`WITH snapshot_counts AS (
+      SELECT COUNT(*) AS n, COALESCE(MAX(rowid),0) AS m FROM snapshots
+    ), point_counts AS (
+      SELECT COUNT(*) AS n, COALESCE(MAX(rowid),0) AS m FROM ptt_points
+    ) SELECT s.n||':'||s.m||':'||p.n||':'||p.m AS fingerprint,
+      (SELECT body FROM cache WHERE kind='export' AND key='fingerprint') AS cached
+      FROM snapshot_counts s CROSS JOIN point_counts p`).first<{ fingerprint: string; cached: string | null }>();
+    const fingerprint = counts!.fingerprint;
+    if (counts?.cached === JSON.stringify(fingerprint)) return;
     const [snapshotsToExport, history] = await Promise.all([this.snapshots(), this.history()]);
     const all = snapshotsToExport.reverse();
     const files: Record<string, string> = {

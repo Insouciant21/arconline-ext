@@ -91,7 +91,9 @@ try {
       const page = Number(params.get('page'));
       return route.fulfill({ json: { scores: Array.from({ length: page === 2 ? 1 : 10 }, (_, index) => ({ ...score, songId: `song-${(page - 1) * 10 + index}`, title: { en: `Arcaea ${index + 1}` } })), count: 11 } });
     }
-    return route.fulfill({ json: { scores: [{ ...score, ...(params.get('difficulty') === '3' ? { songId: 'dreadarea', difficulty: 3, difficultyAlias: 1, title: { en: 'Extradimensional Cosmic Phenomenon — Long Title' } } : {}) }], count: 1 } });
+    return route.fulfill({ json: { scores: [{ ...score, ...(params.get('difficulty') === '3' ? { songId: 'dreadarea', difficulty: 3, difficultyAlias: 1, title: { en: 'Extradimensional Cosmic Phenomenon — Long Title' } } : {}) }], count: 1,
+      exportHint: { rating: 12.939, characterId: 23, characterUncapped: true },
+    } });
   });
   async function search(term) {
     await page.getByLabel('曲名或歌曲 ID').fill(term);
@@ -159,6 +161,8 @@ try {
   await page.getByRole('button', { name: '导出', exact: true }).hover();
   await packFailure;
   expect(profileRequests).toBe(0);
+  // The saved hint starts the partner download before any fresh profile fetch.
+  await expect.poll(() => partnerAssets.some(url => /\/23u(?:\.[^/]+)?\.webp/.test(url))).toBe(true);
   expect(packRequests).toBe(1);
   failPack = false;
   const referenceText = await exportResult('aegleseeker');

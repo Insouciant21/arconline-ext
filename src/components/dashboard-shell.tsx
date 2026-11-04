@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import type { DashboardPayload, JobView, StoredUser } from "@/lib/types";
 import { formatJoinDate, formatRelativeDate } from "@/lib/utils";
-import { PLAYER_PROFILE_UPDATED_EVENT } from "@/lib/score-export-client";
+import { PLAYER_PROFILE_UPDATED_EVENT, setScoreExportHint } from "@/lib/score-export-client";
 
 type ActionState = "idle" | "syncing" | "retrying" | "importing";
 type ChartRange = (typeof chartRanges)[number]["label"];
@@ -49,6 +49,7 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
   const [job, setJob] = React.useState<JobView | null>(initialData.activeJob);
   const latest = data.latest;
   const user = data.user ?? latest?.user;
+  React.useEffect(() => { setScoreExportHint(user); }, [user]);
   React.useEffect(() => {
     const updateProfile = (event: Event) => {
       const user = (event as CustomEvent<StoredUser>).detail;

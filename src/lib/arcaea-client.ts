@@ -4,6 +4,7 @@ import type { Env } from "./environment";
 import type { Best50Score, LocalizedTitle, Score, SongScore, SongScoreQuery, SongScoresPayload, StoredUser } from "./types";
 import { songScoreSearchParams, SONG_SCORE_PAGE_SIZE } from "./song-query";
 import { ArcaeaSessionCache, sessionFromHeaders, type ArcaeaSession } from "./arcaea-session";
+import { measure, type Profiler } from "./profiling";
 
 interface ApiEnvelope {
   success?: boolean;
@@ -22,14 +23,15 @@ export class ArcaeaClient {
   private refreshing?: Promise<void>;
 
   private constructor(private session: ArcaeaSession, private readonly config: ReturnType<typeof getConfig>,
-    private readonly sessionCache: ArcaeaSessionCache, private readonly authenticate: () => Promise<ArcaeaSession>) {}
+    private readonly sessionCache: ArcaeaSessionCache, private readonly authenticate: () => Promise<ArcaeaSession>,
+    private readonly profiling?: Profiler) {}
 
-  static async login(env: Env) {
+  static async login(env: Env, profiling?: Profiler) {
     const config = getConfig(env);
     const credentials = getArcaeaCredentials(env);
     const cache = await ArcaeaSessionCache.create(env, config, credentials);
-    const authenticate = () => ArcaeaClient.authenticate(config, credentials);
-    return new ArcaeaClient(await cache.get(authenticate), config, cache, authenticate);
+    const authenticate = () => measure(profiling, "lowiro.login", () => ArcaeaClient.authenticate(config, credentials));
+    return new ArcaeaClient(await measure(profiling, "lowiro.session", () => cache.get(authenticate)), config, cache, authenticate, profiling);
   }
 
   private static async authenticate(config: ReturnType<typeof getConfig>, credentials: ReturnType<typeof getArcaeaCredentials>) {
@@ -62,7 +64,7 @@ export class ArcaeaClient {
   }
 
   async getUser(): Promise<StoredUser> {
-    const payload = await this.request<ApiEnvelope>("/webapi/user/me");
+    const payload = await measure(this.profiling, "lowiro.user", () => this.request<ApiEnvelope>("/webapi/user/me"));
     const raw = asRecord(payload.value);
     const characterId = asOptionalInteger(raw.character);
     const activeCharacter = Array.isArray(raw.character_stats)
@@ -97,7 +99,7 @@ export class ArcaeaClient {
   }
 
   async getBest50(): Promise<Best50Score[]> {
-    const payload = await this.request<ApiEnvelope>("/webapi/score/rating/me");
+    const payload = await measure(this.profiling, "lowiro.b50", () => this.request<ApiEnvelope>("/webapi/score/rating/me"));
     const raw = asRecord(payload.value);
     const scores = Array.isArray(raw.best_rated_scores) ? raw.best_rated_scores : [];
     if (scores.length === 0) {
@@ -120,7 +122,7 @@ export class ArcaeaClient {
   }
 
   async getPotentialHistory() {
-    const payload = await this.request<ApiEnvelope>("/webapi/score/rating_progression/me?duration=5y");
+    const payload = await measure(this.profiling, "lowiro.history", () => this.request<ApiEnvelope>("/webapi/score/rating_progression/me?duration=5y"));
     if (!Array.isArray(payload.value)) {
       throw new AppError("官网历史潜力值响应异常。", 502, "ARCAEA_HISTORY_INVALID");
     }
@@ -156,14 +158,14 @@ export class ArcaeaClient {
     if (!/^[a-f0-9]{32}$/i.test(icon)) {
       throw new AppError("角色头像标识格式不合法。", 502, "ARCAEA_CHARACTER_ICON_INVALID");
     }
-    return this.fetchImage(`${this.config.arcaeaAssetBase}/chr/${icon}.png`, "character");
+    return measure(this.profiling, "lowiro.avatar", () => this.fetchImage(`${this.config.arcaeaAssetBase}/chr/${icon}.png`, "character"));
   }
 
   async getBannerImage(resource: string) {
     if (!/^[a-f0-9]{32}$/i.test(resource)) {
       throw new AppError("名片标识格式不合法。", 502, "ARCAEA_BANNER_INVALID");
     }
-    return this.fetchImage(`${this.config.arcaeaAssetBase}/${resource}.png`, "banner");
+    return measure(this.profiling, "lowiro.banner", () => this.fetchImage(`${this.config.arcaeaAssetBase}/${resource}.png`, "banner"));
   }
 
   async fetchB50Snapshot() {

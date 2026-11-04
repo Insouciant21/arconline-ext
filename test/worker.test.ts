@@ -317,6 +317,29 @@ describe("single-song queries", () => {
     expect(payload.scores[0]).not.toHaveProperty("imageUrl");
     expect(warning).toHaveBeenCalledOnce();
   });
+
+  it("returns only local asset hints alongside song scores without fetching the user again", async () => {
+    const source = { ...uncachedFixture().user, characterId: 23, characterUncapped: true,
+      bannerResource: "b".repeat(32), email: "private@example.com", cookie: "private-session" };
+    await new Store(env).putCache("score-export", "profile", source);
+    const upstream = mockSongApi({ success: true, value: { scores: [], count: 0 } });
+    const cookie = await login();
+    const response = await api(env, request("/api/scores?term=Aegleseeker", "GET", cookie));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ scores: [], count: 0, exportHint: {
+      rating: 12.5, characterId: 23, characterUncapped: true, bannerResource: "b".repeat(32),
+    } });
+    expect(upstream.mock.calls.some(([input]) => String(input).includes("/user/me"))).toBe(false);
+  });
+
+  it("keeps song scores available if the optional export hint cache fails", async () => {
+    mockSongApi({ success: true, value: { scores: [], count: 0 } });
+    vi.spyOn(Store.prototype, "cache").mockRejectedValue(new Error("Temporary cache failure"));
+    const cookie = await login();
+    const response = await api(env, request("/api/scores?term=Aegleseeker", "GET", cookie));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ scores: [], count: 0 });
+  });
 });
 
 describe("score export profiles", () => {
@@ -354,6 +377,10 @@ describe("score export profiles", () => {
     const response = await api(env, request("/api/score-export/profile", "POST", cookie));
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
+    const timings = response.headers.get("server-timing");
+    expect(timings).toMatch(/auth;dur=\d/);
+    expect(timings).toMatch(/profile.total;dur=\d/);
+    expect(timings).toMatch(/d1.profile.write;dur=\d/);
     expect(await response.json()).toMatchObject({ characterAssetId: "23u", user: { name: "Current Player", rating: 13,
       avatarImageUrl: `/api/media/characters/${source.user.characterIcon}.png` }, bannerImageUrl: `/api/media/banners/${"b".repeat(32)}.png` });
     const dashboard = await api(env, request("/api/dashboard", "GET", cookie));
@@ -506,6 +533,39 @@ describe("score export profiles", () => {
     expect(client.fetchB50Snapshot).toHaveBeenCalledTimes(2);
     expect(client.getUser).not.toHaveBeenCalled();
     expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("settles overlapping profile and history work before retrying an unchanged B50", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const snapshot = uncachedFixture(), client = mockLowiro(snapshot), store = new Store(env);
+    await syncB50();
+    snapshot.user.name = "Changed Player";
+    snapshot.user.bannerResource = "b".repeat(32);
+    client.getBannerImage.mockRejectedValueOnce(new Error("Temporary banner failure"));
+    let releaseHistory!: () => void;
+    const history = new Promise<void>(resolve => { releaseHistory = resolve; });
+    client.getPotentialHistory.mockImplementationOnce(async () => { await history; return []; });
+    const exporting = vi.spyOn(Store.prototype, "exportArchive");
+    const job = await enqueue(env, "sync"), running = deliver(sent.shift()!);
+    try {
+      await vi.waitFor(() => {
+        expect(client.getBannerImage).toHaveBeenCalledOnce();
+        expect(client.getPotentialHistory).toHaveBeenCalledTimes(2);
+      });
+      expect((await getJob(env, job.jobId)).status).toBe("running");
+      expect(exporting).not.toHaveBeenCalled();
+    } finally { releaseHistory(); }
+    await running;
+    expect((await getJob(env, job.jobId)).status).toBe("queued");
+    expect((await store.cache<{ name: string }>("score-export", ["profile"])).profile.name).toBe("Test");
+    await deliver(sent.shift()!);
+    const result = await getJob(env, job.jobId);
+    expect(result.status).toBe("succeeded");
+    expect(result.result?.recorded).toBe(false);
+    expect(client.fetchB50Snapshot).toHaveBeenCalledTimes(2);
+    expect(await store.snapshots()).toHaveLength(1);
+    expect((await store.cache<{ name: string }>("score-export", ["profile"])).profile.name).toBe("Changed Player");
+    expect(await env.ARCHIVE.head(`banners/${"b".repeat(32)}.png`)).not.toBeNull();
   });
 
   it("asks for a B50 sync when no usable profile exists, without an upstream fallback", async () => {
@@ -898,6 +958,10 @@ describe("durable queue pipeline",()=>{
     const job = await enqueue(env, "sync"), message = sent.shift()!;
     const delivered = await deliver(message), result = await getJob(env, job.jobId);
     expect(result.status).toBe("succeeded");expect(delivered.ack).toHaveBeenCalledOnce();
+    expect(result.timings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "stage.fetch" }), expect.objectContaining({ name: "stage.profile" }),
+      expect.objectContaining({ name: "stage.media" }), expect.objectContaining({ name: "stage.archive" }),
+    ]));
     expect(sent).toHaveLength(0);
     expect(ArcaeaClient.login).toHaveBeenCalledTimes(1);
     expect(client.fetchB50Snapshot).toHaveBeenCalledTimes(1);

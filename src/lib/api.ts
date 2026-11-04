@@ -7,13 +7,15 @@ import { serveMedia } from "./media";
 import { Store } from "./store";
 import { getSongScores } from "./song-scores";
 import { getScoreExportProfile, refreshScoreExportProfile } from "./score-export-profile";
+import { measure, Profiler } from "./profiling";
 
 export async function api(env: Env, request: Request, background?: Pick<ExecutionContext, "waitUntil">): Promise<Response> {
   try {
     const path = new URL(request.url).pathname;
     if (path === "/api/auth/login") { method(request, "POST"); return await login(env, request); }
     if (path === "/api/auth/logout") { method(request, "POST"); return await logout(env, request); }
-    if (!await authenticated(env, request)) throw new AppError("需要登录后才能访问。", 401, "AUTH_REQUIRED");
+    const profiling = path === "/api/score-export/profile" && request.method === "POST" ? new Profiler() : undefined;
+    if (!await measure(profiling, "auth", () => authenticated(env, request))) throw new AppError("需要登录后才能访问。", 401, "AUTH_REQUIRED");
     if (request.method !== "GET" && request.method !== "HEAD") {
       requireSameOrigin(request);
       if (env.MUTATIONS_ENABLED === "false") throw new AppError("维护中，暂时停止同步。", 503, "MAINTENANCE");
@@ -22,7 +24,12 @@ export async function api(env: Env, request: Request, background?: Pick<Executio
     if (path === "/api/dashboard") { method(request, "GET"); return json(await getDashboardPayload(env)); }
     if (path === "/api/scores") { method(request, "GET"); return json(await getSongScores(env, new URL(request.url).searchParams)); }
     if (path === "/api/score-export/profile") {
-      if (request.method === "POST") return json(await refreshScoreExportProfile(env));
+      if (request.method === "POST") {
+        const payload = await measure(profiling, "profile.total", () => refreshScoreExportProfile(env, profiling));
+        const response = json(payload);
+        response.headers.set("server-timing", profiling!.serverTiming());
+        return response;
+      }
       if (request.method === "GET") return json(await getScoreExportProfile(env));
       throw new AppError("GET, POST", 405, "METHOD_NOT_ALLOWED");
     }

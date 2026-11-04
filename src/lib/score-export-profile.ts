@@ -4,30 +4,23 @@ import type { Env } from "./environment";
 import { publicAssetUrl, putAsset } from "./r2";
 import { Store } from "./store";
 import type { ScoreExportProfile, StoredUser } from "./types";
-import variants from "./score-result-characters.json";
+import { measure, type Profiler } from "./profiling";
+import { characterAssetId } from "./score-result-character";
+export { characterAssetId } from "./score-result-character";
 
-const available = new Set(variants);
 const resourcePattern = /^[a-f0-9]{32}$/i;
-
-export function characterAssetId(user: StoredUser) {
-  if (!Number.isSafeInteger(user.characterId) || (user.characterId ?? -1) < 0) return null;
-  const suffix = user.characterUncapped && !user.characterUncappedOverride ? "u" : "";
-  const id = `${user.characterId}${suffix}`;
-  // Some partners have no separate awakened artwork. Reuse their own base art.
-  return available.has(id) ? id : available.has(String(user.characterId)) ? String(user.characterId) : null;
-}
 
 // B50 sync and export refreshes share this cache, independently of score
 // snapshot deduplication, using the caller's already-authenticated client.
-export async function cacheScoreExportProfile(store: Store, source: StoredUser, getClient: () => Promise<ArcaeaClient>) {
+export async function cacheScoreExportProfile(store: Store, source: StoredUser, getClient: () => Promise<ArcaeaClient>, profiling?: Profiler) {
   const user = { ...source };
   async function cacheAvatar() {
     if (!user.characterIcon || !resourcePattern.test(user.characterIcon)) return;
     const key = `characters/${user.characterIcon}.png`;
     try {
-      if (user.avatarImageKey !== key && !await store.env.ARCHIVE.head(key)) {
+      if (user.avatarImageKey !== key && !await measure(profiling, "r2.avatar.head", () => store.env.ARCHIVE.head(key))) {
         const image = await (await getClient()).getCharacterIconImage(user.characterIcon);
-        await putAsset(store.env, key, image.body, image.contentType, { kind: "character" });
+        await measure(profiling, "r2.avatar.put", () => putAsset(store.env, key, image.body, image.contentType, { kind: "character" }));
       }
       user.avatarImageKey = key;
       user.avatarImageUrl = publicAssetUrl(store.env, key);
@@ -43,9 +36,9 @@ export async function cacheScoreExportProfile(store: Store, source: StoredUser, 
     if (!user.bannerResource || !resourcePattern.test(user.bannerResource)) return;
     const key = `banners/${user.bannerResource}.png`;
     try {
-      if (!await store.env.ARCHIVE.head(key)) {
+      if (!await measure(profiling, "r2.banner.head", () => store.env.ARCHIVE.head(key))) {
         const image = await (await getClient()).getBannerImage(user.bannerResource);
-        await putAsset(store.env, key, image.body, image.contentType, { kind: "banner" });
+        await measure(profiling, "r2.banner.put", () => putAsset(store.env, key, image.body, image.contentType, { kind: "banner" }));
       }
       user.bannerImageKey = key;
     } catch {
@@ -56,17 +49,17 @@ export async function cacheScoreExportProfile(store: Store, source: StoredUser, 
   const results = await Promise.allSettled([cacheAvatar(), cacheBanner()]);
   const failure = results.find(result => result.status === "rejected");
   if (failure?.status === "rejected") throw failure.reason;
-  await store.putCache("score-export", "profile", user);
+  await measure(profiling, "d1.profile.write", () => store.putCache("score-export", "profile", user));
   return user;
 }
 
-export async function refreshScoreExportProfile(env: Env): Promise<ScoreExportProfile> {
-  const client = await ArcaeaClient.login(env);
+export async function refreshScoreExportProfile(env: Env, profiling?: Profiler): Promise<ScoreExportProfile> {
+  const client = await ArcaeaClient.login(env, profiling);
   const user = await client.getUser();
   if (!user.name || user.characterId === undefined || !Number.isFinite(user.rating)) {
     throw new AppError("官网返回的用户资料不完整，请稍后重试。", 502, "EXPORT_PROFILE_INVALID");
   }
-  const stored = await cacheScoreExportProfile(new Store(env), user, async () => client);
+  const stored = await cacheScoreExportProfile(new Store(env), user, async () => client, profiling);
   return exportProfile(env, stored);
 }
 

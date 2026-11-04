@@ -4,6 +4,7 @@ import { Store } from "./store";
 import { AppError } from "./errors";
 import { runStep, type SyncState } from "./sync";
 import { ArcaeaClient } from "./arcaea-client";
+import { Profiler } from "./profiling";
 
 const CONTINUATION_BUDGET_MS = 120_000;
 
@@ -18,6 +19,7 @@ function jobView(row: JobRow): JobView {
   return { id: row.id, kind: row.kind, status: row.status, stage: row.stage,
     progress: { completed: state.media?.filter(item => item.done).length || 0, total: state.media?.length || 0 },
     createdAt: row.created_at, updatedAt: row.updated_at,
+    ...(state.timings ? { timings: state.timings } : {}),
     ...(row.result ? { result: JSON.parse(row.result) } : {}), ...(row.error ? { error: row.error } : {}),
   };
 }
@@ -109,6 +111,7 @@ export async function consume(env: Env, batch: MessageBatch<JobMessage>) {
     const store = new Store(env), lease = crypto.randomUUID(), now = Date.now();
     // A lease lasts longer than a consumer invocation. Claims also serialize
     // invocations if a redelivery overlaps a deployment or runtime restart.
+    const claimStarted = performance.now();
     const row = await store.sql(`UPDATE jobs SET status='running',lease_token=?,lease_until=?,attempts=attempts+1,updated_at=?
       WHERE id=? AND step=? AND status='queued'
       AND NOT EXISTS(SELECT 1 FROM jobs WHERE status='running' AND lease_until>?) RETURNING *`,
@@ -122,26 +125,33 @@ export async function consume(env: Env, batch: MessageBatch<JobMessage>) {
       }
       continue;
     }
+    const previousTimings = (JSON.parse(row.state) as SyncState).timings ?? [];
+    const profiling = new Profiler(Date.parse(row.created_at), previousTimings);
+    if (!previousTimings.length) profiling.record("queue.wait", 0, now - Date.parse(row.created_at));
+    profiling.record("d1.claim", now - Date.parse(row.created_at), performance.now() - claimStarted);
     try {
       const deadline = Date.now() + CONTINUATION_BUDGET_MS;
       let client: Promise<ArcaeaClient> | undefined;
       const execution = {
         // Reuse one client here; its encrypted D1 session also survives queue
         // continuations. Cookies never enter job state or queue messages.
-        getClient: () => client ??= ArcaeaClient.login(env),
+        getClient: () => client ??= ArcaeaClient.login(env, profiling),
         shouldYield: () => Date.now() >= deadline,
+        profiling,
       };
       while (true) {
-        const next = await runStep(env, row, async state => {
-          const body = JSON.stringify(state);
-          const written = await store.sql("UPDATE jobs SET state=?,updated_at=? WHERE id=? AND lease_token=? AND status='running'", body, new Date().toISOString(), row.id, lease).run();
+        const stage = row.stage;
+        const next = await profiling.measure(`stage.${stage}`, () => runStep(env, row, async state => {
+          const body = JSON.stringify({ ...state, timings: profiling.snapshot() });
+          const written = await profiling.measure("d1.checkpoint", () => store.sql("UPDATE jobs SET state=?,updated_at=? WHERE id=? AND lease_token=? AND status='running'", body, new Date().toISOString(), row.id, lease).run());
           if (!written.meta.changes) throw new Error("Task lease lost");
           row.state = body;
-        }, execution);
+        }, execution));
         const continuing = !next.result && !execution.shouldYield();
         const status = next.result ? "succeeded" : continuing ? "running" : "queued";
+        next.state.timings = profiling.snapshot();
         const state = JSON.stringify(next.state), result = next.result ? JSON.stringify(next.result) : null;
-        const [written] = await env.DB.batch([
+        const [written] = await profiling.measure(`d1.commit.${stage}`, () => env.DB.batch([
           store.sql(`UPDATE jobs SET status=?,stage=?,state=?,result=?,error=NULL,step=step+1,attempts=?,lease_token=?,lease_until=?,updated_at=?
             WHERE id=? AND step=? AND lease_token=? AND status='running'`, status, next.stage, state, result,
             continuing ? 1 : 0, continuing ? lease : null, continuing ? row.lease_until : null, new Date().toISOString(), row.id, row.step, lease),
@@ -150,7 +160,7 @@ export async function consume(env: Env, batch: MessageBatch<JobMessage>) {
           // Keep a durable continuation even while running, so recovery after
           // a process restart can dispatch the latest persisted step.
           store.sql("INSERT OR IGNORE INTO outbox(job_id,step) SELECT id,step FROM jobs WHERE id=? AND status IN ('queued','running')", row.id),
-        ]);
+        ]));
         if (!written.meta.changes) throw new Error("Task lease lost");
         Object.assign(row, { status, stage: next.stage, state, result, step: row.step + 1, attempts: continuing ? 1 : 0 });
         if (!continuing) break;
@@ -160,6 +170,11 @@ export async function consume(env: Env, batch: MessageBatch<JobMessage>) {
     } catch (error) {
       console.error("[job] step failed", row.id, row.stage, error);
       const reason = error instanceof Error ? error.message : "同步失败。";
+      // Preserve completed spans together with the last durable work checkpoint.
+      // In-memory progress from a failed media group must never be committed.
+      const state = JSON.stringify({ ...JSON.parse(row.state), timings: profiling.snapshot() });
+      await store.sql("UPDATE jobs SET state=? WHERE id=? AND lease_token=? AND status='running'", state, row.id, lease).run();
+      row.state = state;
       if (row.attempts >= 4 || (error instanceof AppError && error.status < 500)) {
         await failJob(env, row, reason);
         message.ack();

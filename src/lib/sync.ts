@@ -10,17 +10,20 @@ import { publicAssetUrl, putAsset } from "./r2";
 import { cacheScoreExportProfile } from "./score-export-profile";
 import { Store, type CacheWrite } from "./store";
 import type { B50Snapshot, CharacterImageCacheEntry, ChartImageCacheEntry, JobView } from "./types";
+import { measure, type Profiler, type TimingSpan } from "./profiling";
 
 type MediaItem = { kind: "potential" | "chart" | "character"; key: string; bg?: string; icon?: string; characterId?: number; songId?: string; done?: boolean; cached?: boolean };
-export interface SyncState { snapshotId?: string; media?: MediaItem[]; preview?: B50Snapshot; duplicateOf?: string; historyMessage?: string; historyPending?: boolean; }
+export interface SyncState { snapshotId?: string; media?: MediaItem[]; preview?: B50Snapshot; duplicateOf?: string; historyMessage?: string; historyPending?: boolean; timings?: TimingSpan[]; }
 type StepResult = { stage: string; state: SyncState; result?: NonNullable<JobView["result"]> };
 export interface SyncExecution {
   getClient: () => Promise<ArcaeaClient>;
   shouldYield: () => boolean;
+  profiling?: Profiler;
 }
 
 export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncState) => Promise<void>, execution?: SyncExecution): Promise<StepResult> {
   const store = new Store(env), state = JSON.parse(job.state) as SyncState;
+  const profiling = execution?.profiling;
   let client: Promise<ArcaeaClient> | undefined;
   const getClient = execution?.getClient ?? (() => client ??= ArcaeaClient.login(env));
   if (job.stage === "fetch") {
@@ -47,15 +50,17 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
       await checkpoint(state);
       return { stage: "profile", state };
     }
-    const [remote, previous] = await Promise.all([getClient().then(client => client.fetchB50Snapshot()), store.latest()]);
-    await store.aliases(remote.best50);
+    const [remote, previous] = await Promise.all([getClient().then(client => client.fetchB50Snapshot()), measure(profiling, "d1.latest", () => store.latest())]);
     const snapshot: B50Snapshot = {
       id: snapshotId, fetchedAt: new Date().toISOString(), trigger: job.trigger,
       potential: formatPotential(remote.user.rating), weightedPotential: formatPotential(calculateWeightedPotential(remote.best50.map(score => score.rating))),
       user: remote.user, best50: remote.best50,
       imageStats: { requested: new Set(remote.best50.map(score => score.bg).filter(Boolean)).size, uploaded: 0, failed: 0, failures: [], cached: 0 }, mediaStatus: "processing",
     };
-    await enrichCached(store, snapshot, previous);
+    await Promise.all([
+      measure(profiling, "d1.aliases", () => store.aliases(remote.best50)),
+      measure(profiling, "d1.media.cache", () => enrichCached(store, snapshot, previous)),
+    ]);
     if (previous && sameB50(previous, snapshot)) {
       const scores = new Map(previous.best50.map(score => [scoreMediaKey(score), score]));
       snapshot.best50 = snapshot.best50.map(score => ({ ...scores.get(scoreMediaKey(score)), ...score }));
@@ -77,15 +82,25 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
   if (job.stage === "profile") {
     const snapshot = state.preview ?? (state.snapshotId ? await store.snapshot(state.snapshotId) : null);
     if (!snapshot) throw new AppError("任务快照不存在。", 404, "SNAPSHOT_MISSING");
-    snapshot.user = await cacheScoreExportProfile(store, snapshot.user, getClient);
+    // For unchanged scores these operations are independent. Settle both before
+    // retrying, so no upload or history write can escape the durable invocation.
+    const results = await Promise.allSettled([
+      cacheScoreExportProfile(store, snapshot.user, getClient, profiling),
+      state.preview ? syncHistory(store, getClient, profiling) : Promise.resolve(),
+    ]);
+    if (results[0].status === "rejected") throw results[0].reason;
+    if (results[1].status === "rejected") throw results[1].reason;
+    snapshot.user = results[0].value;
     if (state.preview) state.preview = snapshot;
     else await store.writeSnapshot(snapshot);
-    await checkpoint(state);
-    return { stage: state.preview ? "history" : "media", state };
+    // The caller commits this state and the next stage atomically. An additional
+    // checkpoint here would write the same complete B50 twice in succession.
+    if (state.preview) state.historyPending = false;
+    return { stage: state.preview ? "archive" : "media", state };
   }
   if (job.stage === "history") {
     // History failure must not discard a successfully fetched B50.
-    await syncHistory(store, getClient);
+    await syncHistory(store, getClient, profiling);
     state.historyPending = false;
     if (state.preview) return { stage: "archive", state };
     return { stage: "media", state };
@@ -101,7 +116,7 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
           await checkpoint(progress);
           persisted = structuredClone(progress);
         }, mediaExecution),
-        syncHistory(store, getClient),
+        syncHistory(store, getClient, profiling),
       ]);
       if (results[1].status === "fulfilled") {
         // If a media write failed, only advance the last durable checkpoint.
@@ -127,7 +142,7 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
       await store.writeSnapshot(snapshot);
       finalizers.push(store.backup(snapshot));
     }
-    finalizers.push(store.exportArchive());
+    finalizers.push(measure(profiling, "archive.export", () => store.exportArchive()));
     const results = await Promise.allSettled(finalizers);
     const failure = results.find(result => result.status === "rejected");
     if (failure?.status === "rejected") throw failure.reason;
@@ -137,10 +152,10 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
   }
   throw new Error(`Unknown task stage: ${job.stage}`);
 }
-async function syncHistory(store: Store, getClient: SyncExecution["getClient"]) {
+async function syncHistory(store: Store, getClient: SyncExecution["getClient"], profiling?: Profiler) {
   // History failure must not discard a successfully fetched B50.
   try {
-    await importOfficialHistory(store, await getClient(), { refreshAliases: false });
+    await importOfficialHistory(store, await getClient(), { refreshAliases: false, profiling });
   } catch (error) {
     await store.log({ scope: "b50", level: "warning", action: "history-import-failed", message: `官网历史导入失败，保留已有数据：${error instanceof Error ? error.message : "未知错误"}` });
   }
