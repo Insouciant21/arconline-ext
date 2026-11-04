@@ -13,6 +13,14 @@ const resourcePattern = /^[a-f0-9]{32}$/i;
 // B50 sync and export refreshes share this cache, independently of score
 // snapshot deduplication, using the caller's already-authenticated client.
 export async function cacheScoreExportProfile(store: Store, source: StoredUser, getClient: () => Promise<ArcaeaClient>, profiling?: Profiler) {
+  const user = await prepareScoreExportProfile(store, source, getClient, profiling);
+  await measure(profiling, "d1.profile.write", () => store.putCache("score-export", "profile", user));
+  return user;
+}
+
+// Sync prepares these assets alongside score media, then commits the user and
+// the owning snapshot in the same D1 transaction.
+export async function prepareScoreExportProfile(store: Store, source: StoredUser, getClient: () => Promise<ArcaeaClient>, profiling?: Profiler) {
   const user = { ...source };
   async function cacheAvatar() {
     if (!user.characterIcon || !resourcePattern.test(user.characterIcon)) return;
@@ -49,7 +57,6 @@ export async function cacheScoreExportProfile(store: Store, source: StoredUser, 
   const results = await Promise.allSettled([cacheAvatar(), cacheBanner()]);
   const failure = results.find(result => result.status === "rejected");
   if (failure?.status === "rejected") throw failure.reason;
-  await measure(profiling, "d1.profile.write", () => store.putCache("score-export", "profile", user));
   return user;
 }
 

@@ -664,9 +664,22 @@ describe("score export profiles", () => {
     await store.putCache("score-export", "profile", { rating: 10, name: "Previously synced", characterId: 7 });
     client.getBannerImage.mockRejectedValueOnce(new Error("Temporary banner failure"));
     vi.spyOn(console, "error").mockImplementation(() => {});
+    let releaseImage!: () => void;
+    const image = new Promise<void>(resolve => { releaseImage = resolve; });
+    client.getOnlineImage.mockImplementationOnce(async () => {
+      await image;return { body: new Uint8Array([1, 2, 3]).buffer, contentType: "image/png" };
+    });
     const cookie = await login(), job = await enqueue(env, "sync");
-    await deliver(sent.shift()!);
-    expect(await getJob(env, job.jobId)).toMatchObject({ status: "queued", stage: "profile" });
+    const running = deliver(sent.shift()!);
+    try {
+      await vi.waitFor(() => {
+        expect(client.getBannerImage).toHaveBeenCalledOnce();
+        expect(client.getOnlineImage).toHaveBeenCalledOnce();
+      });
+      expect((await getJob(env, job.jobId)).status).toBe("running");
+    } finally { releaseImage(); }
+    await running;
+    expect(await getJob(env, job.jobId)).toMatchObject({ status: "queued", stage: "media" });
     const unchanged = await api(env, request("/api/score-export/profile", "GET", cookie));
     expect(await unchanged.json()).toMatchObject({ user: { name: "Previously synced" } });
     expect(await env.ARCHIVE.head(`banners/${"b".repeat(32)}.png`)).toBeNull();
@@ -678,6 +691,8 @@ describe("score export profiles", () => {
     expect(client.fetchB50Snapshot).toHaveBeenCalledTimes(1);
     expect(client.getBannerImage).toHaveBeenCalledTimes(2);
     expect(client.getCharacterIconImage).toHaveBeenCalledTimes(1);
+    expect(client.getOnlineImage).toHaveBeenCalledTimes(1);
+    expect(client.getChartImage).toHaveBeenCalledTimes(50);
   });
 
   it("rejects invalid banner resource paths before requesting an image", async () => {
@@ -818,15 +833,21 @@ describe("D1 archives",()=>{
     const history = await (await env.ARCHIVE.get("exports/ptt-history.json"))!.json<Array<{ potential: number }>>();
     expect(history.at(-1)?.potential).toBe(13.1);
   });
-  it("rolls media cache entries back when their snapshot transaction fails", async () => {
+  it("rolls media and profile cache entries back when their snapshot transaction fails", async () => {
     const store = new Store(env), snapshot = fixture();
     await store.writeSnapshot(snapshot);
+    await store.putCache("score-export", "profile", snapshot.user);
     const changed = structuredClone(snapshot);
     changed.best50[0].imageKey = "charts/new.jpg";
+    changed.user.name = "Changed user";
     await env.DB.prepare("CREATE TRIGGER reject_snapshot_update BEFORE UPDATE ON snapshots BEGIN SELECT RAISE(ABORT,'injected snapshot failure'); END").run();
     try {
-      await expect(store.writeSnapshot(changed, [{ kind: "chart", key: "new", value: { imageKey: "charts/new.jpg" } }])).rejects.toThrow();
+      await expect(store.writeSnapshot(changed, [
+        { kind: "chart", key: "new", value: { imageKey: "charts/new.jpg" } },
+        { kind: "score-export", key: "profile", value: changed.user },
+      ])).rejects.toThrow();
       expect((await store.cache("chart", ["new"])).new).toBeUndefined();
+      expect((await store.cache("score-export", ["profile"])).profile).toEqual(snapshot.user);
       expect((await store.snapshot(snapshot.id))?.best50[0].imageKey).toBeUndefined();
     } finally { await env.DB.prepare("DROP TRIGGER reject_snapshot_update").run(); }
   });
@@ -856,6 +877,38 @@ describe("D1 archives",()=>{
   });
 });
 describe("durable queue pipeline",()=>{
+  it("prepares profile assets, history and score media together before committing one complete user", async () => {
+    const snapshot = uncachedFixture(), store = new Store(env);
+    snapshot.user.bannerResource = "b".repeat(32);
+    const client = mockLowiro(snapshot);
+    await store.putCache("score-export", "profile", { name: "Previous user", rating: 10 });
+    let releaseBanner!: () => void;
+    const banner = new Promise<void>(resolve => { releaseBanner = resolve; });
+    client.getBannerImage.mockImplementation(async () => {
+      await banner;return { body: new Uint8Array([1, 2]).buffer, contentType: "image/png" };
+    });
+    const exporting = vi.spyOn(Store.prototype, "exportArchive");
+    const job = await enqueue(env, "sync"), running = deliver(sent.shift()!);
+    try {
+      await vi.waitFor(() => {
+        expect(client.getBannerImage).toHaveBeenCalledOnce();
+        expect(client.getCharacterIconImage).toHaveBeenCalledOnce();
+        expect(client.getPotentialHistory).toHaveBeenCalledOnce();
+        expect(client.getOnlineImage).toHaveBeenCalledOnce();
+        expect(client.getChartImage).toHaveBeenCalledTimes(3);
+      });
+      expect((await getJob(env, job.jobId)).status).toBe("running");
+      expect((await store.cache<{ name: string }>("score-export", ["profile"])).profile.name).toBe("Previous user");
+      expect(exporting).not.toHaveBeenCalled();
+    } finally { releaseBanner(); }
+    await running;
+    const result = await getJob(env, job.jobId);
+    expect(result.status).toBe("succeeded");
+    expect(result.result?.snapshot?.user).toMatchObject({ name: "Test", bannerImageKey: `banners/${"b".repeat(32)}.png`, avatarImageKey: `characters/${snapshot.user.characterIcon}.png` });
+    expect((await store.cache("score-export", ["profile"])).profile).toEqual(result.result?.snapshot?.user);
+    expect(client.getCharacterIconImage).toHaveBeenCalledOnce();
+    expect(client.getChartImage).toHaveBeenCalledTimes(50);
+  });
   it("reuses previous covers and avatar when scores change, downloading only the new cover", async () => {
     const previous = uncachedFixture(), store = new Store(env);
     previous.best50.forEach(score => { score.imageKey = `charts/${score.bg}.jpg`; });
@@ -919,6 +972,7 @@ describe("durable queue pipeline",()=>{
   it("does not mark unpersisted uploads done when history finishes during a failed snapshot write", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const client = mockLowiro(uncachedFixture()), original = Store.prototype.writeSnapshot;
+    await new Store(env).putCache("score-export", "profile", { name: "Previous user", rating: 10 });
     let fail = true;
     vi.spyOn(Store.prototype, "writeSnapshot").mockImplementation(async function(snapshot, caches) {
       if (fail && snapshot.imageStats.uploaded > 0) { fail = false;throw new Error("Temporary snapshot write failure"); }
@@ -928,6 +982,8 @@ describe("durable queue pipeline",()=>{
     expect((await getJob(env, job.jobId)).status).toBe("queued");
     const state = JSON.parse((await new Store(env).sql("SELECT state FROM jobs WHERE id=?", job.jobId).first<string>("state"))!);
     expect(state.historyPending).toBe(false);expect(state.media.every((item: { done?: boolean }) => !item.done)).toBe(true);
+    expect(state.profilePending).toBe(true);
+    expect((await new Store(env).cache<{ name: string }>("score-export", ["profile"])).profile.name).toBe("Previous user");
     await deliver(sent.shift()!);
     const result = await getJob(env, job.jobId);
     expect(result.status).toBe("succeeded");expect(result.result?.snapshot?.potentialImageKey).toBeTruthy();
@@ -996,6 +1052,29 @@ describe("durable queue pipeline",()=>{
     expect((await getJob(env, job.jobId)).status).toBe("succeeded");
     expect(client.fetchB50Snapshot).not.toHaveBeenCalled();expect(client.getPotentialHistory).toHaveBeenCalledTimes(1);
   });
+  it("resumes a legacy profile stage without fetching B50 again", async () => {
+    const snapshot = uncachedFixture(), store = new Store(env), client = mockLowiro(snapshot);
+    await store.writeSnapshot(snapshot);
+    const job = await enqueue(env, "sync");
+    await store.sql("UPDATE jobs SET stage='profile',state=? WHERE id=?", JSON.stringify({ snapshotId: snapshot.id, historyPending: true }), job.jobId).run();
+    await deliver(sent.shift()!);
+    expect(await getJob(env, job.jobId)).toMatchObject({ status: "succeeded", result: { snapshot: { user: { avatarImageKey: `characters/${snapshot.user.characterIcon}.png` } } } });
+    expect(client.fetchB50Snapshot).not.toHaveBeenCalled();
+    expect(client.getCharacterIconImage).toHaveBeenCalledOnce();
+  });
+  it("commits a pending profile even when all score media is already persisted", async () => {
+    const snapshot = uncachedFixture(), store = new Store(env), client = mockLowiro(snapshot);
+    snapshot.best50.forEach(score => { score.imageKey = `charts/${score.bg}.jpg`; });
+    snapshot.potentialImageKey = `potential/${snapshot.id}.image`;
+    snapshot.user.avatarImageKey = `characters/${snapshot.user.characterIcon}.png`;
+    await store.writeSnapshot(snapshot);
+    const job = await enqueue(env, "sync");
+    await store.sql("UPDATE jobs SET stage='media',state=? WHERE id=?", JSON.stringify({ snapshotId: snapshot.id, profilePending: true }), job.jobId).run();
+    await deliver(sent.shift()!);
+    expect((await getJob(env, job.jobId)).status).toBe("succeeded");
+    expect((await store.cache<{ name: string }>("score-export", ["profile"])).profile.name).toBe("Test");
+    expect(client.fetchB50Snapshot).not.toHaveBeenCalled();expect(client.getChartImage).not.toHaveBeenCalled();expect(client.getOnlineImage).not.toHaveBeenCalled();
+  });
   it("finishes an uncached B50 in one delivery and reuses one upstream session", async () => {
     const client = mockLowiro(uncachedFixture());
     const writes = vi.spyOn(Store.prototype, "writeSnapshot"), caches = vi.spyOn(Store.prototype, "cache");
@@ -1003,7 +1082,7 @@ describe("durable queue pipeline",()=>{
     const delivered = await deliver(message), result = await getJob(env, job.jobId);
     expect(result.status).toBe("succeeded");expect(delivered.ack).toHaveBeenCalledOnce();
     expect(result.timings).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: "stage.fetch" }), expect.objectContaining({ name: "stage.profile" }),
+      expect.objectContaining({ name: "stage.fetch" }), expect.objectContaining({ name: "sync.profile" }),
       expect.objectContaining({ name: "stage.media" }), expect.objectContaining({ name: "stage.archive" }),
     ]));
     expect(sent).toHaveLength(0);

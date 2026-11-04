@@ -7,13 +7,13 @@ import type { JobRow } from "./jobs";
 import { importOfficialHistory } from "./official-history";
 import { calculateWeightedPotential, formatPotential } from "./potential";
 import { publicAssetUrl, putAsset } from "./r2";
-import { cacheScoreExportProfile } from "./score-export-profile";
+import { cacheScoreExportProfile, prepareScoreExportProfile } from "./score-export-profile";
 import { Store, type CacheWrite } from "./store";
-import type { B50Snapshot, CharacterImageCacheEntry, ChartImageCacheEntry, JobView } from "./types";
+import type { B50Snapshot, CharacterImageCacheEntry, ChartImageCacheEntry, JobView, StoredUser } from "./types";
 import { measure, type Profiler, type TimingSpan } from "./profiling";
 
 type MediaItem = { kind: "potential" | "chart" | "character"; key: string; bg?: string; icon?: string; characterId?: number; songId?: string; done?: boolean; cached?: boolean };
-export interface SyncState { snapshotId?: string; media?: MediaItem[]; preview?: B50Snapshot; duplicateOf?: string; historyMessage?: string; historyPending?: boolean; timings?: TimingSpan[]; }
+export interface SyncState { snapshotId?: string; media?: MediaItem[]; preview?: B50Snapshot; duplicateOf?: string; historyMessage?: string; historyPending?: boolean; profilePending?: boolean; timings?: TimingSpan[]; }
 type StepResult = { stage: string; state: SyncState; result?: NonNullable<JobView["result"]> };
 export interface SyncExecution {
   getClient: () => Promise<ArcaeaClient>;
@@ -58,9 +58,9 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
     const snapshotId = state.snapshotId || `${getLocalDate(job.created_at, getConfig(env).timezone)}-${job.id}`;
     const saved = await loadSnapshot(snapshotId);
     if (saved) {
-      state.snapshotId = saved.id; state.media = mediaItems(saved); state.historyPending = true;
+      state.snapshotId = saved.id; state.media = mediaItems(saved); state.historyPending = true; state.profilePending = true;
       await checkpoint(state);
-      return { stage: "profile", state };
+      return { stage: "media", state };
     }
     const [remote, previous] = await Promise.all([getClient().then(client => client.fetchB50Snapshot()), measure(profiling, "d1.latest", () => store.latest())]);
     const snapshot: B50Snapshot = {
@@ -86,10 +86,11 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
       await saveSnapshot(snapshot);
       state.media = mediaItems(snapshot);
       state.historyPending = true;
+      state.profilePending = true;
     }
     await checkpoint(state);
     await store.log({ scope: "b50", level: state.duplicateOf ? "warning" : "success", action: state.duplicateOf ? "skipped" : "recorded", message: state.duplicateOf ? "B50 未变化，跳过成绩快照并更新导出资料。" : "B50 已保存，继续处理用户资料、历史和媒体。", snapshotId: snapshot.id });
-    return { stage: "profile", state };
+    return { stage: state.preview ? "profile" : "media", state };
   }
   if (job.stage === "profile") {
     const snapshot = state.preview ?? (state.snapshotId ? await loadSnapshot(state.snapshotId) : null);
@@ -121,29 +122,29 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
     const snapshot = state.snapshotId ? await loadSnapshot(state.snapshotId) : null;
     if (!snapshot) throw new AppError("任务快照不存在。", 404, "SNAPSHOT_MISSING");
     const mediaExecution = { getClient, shouldYield: execution?.shouldYield ?? (() => false) };
-    if (state.historyPending) {
-      let persisted = structuredClone(state);
-      const results = await Promise.allSettled([
-        processMedia(store, snapshot, state, async progress => {
-          await checkpoint(progress);
-          persisted = structuredClone(progress);
-        }, mediaExecution),
-        syncHistory(store, getClient, profiling),
-      ]);
-      if (results[1].status === "fulfilled") {
-        // If a media write failed, only advance the last durable checkpoint.
-        // Uploads ahead of it will be recovered by their deterministic R2 keys.
-        const progress = results[0].status === "fulfilled" ? state : persisted;
-        progress.historyPending = false;
-        // Successful work is committed with the next durable stage below.
-        // On media failure, retain history completion with the last checkpoint.
-        if (results[0].status === "rejected") await checkpoint(progress);
-      }
-      const failure = results.find(result => result.status === "rejected");
-      if (failure?.status === "rejected") throw failure.reason;
-    } else {
-      await processMedia(store, snapshot, state, checkpoint, mediaExecution);
+    const profile = state.profilePending
+      ? measure(profiling, "sync.profile", () => prepareScoreExportProfile(store, snapshot.user, getClient, profiling))
+      : undefined;
+    const historyPending = state.historyPending;
+    let persisted = structuredClone(state);
+    // All branches settle before a retry or continuation. Only processMedia
+    // writes the snapshot, after merging the independently prepared user.
+    const results = await Promise.allSettled([
+      processMedia(store, snapshot, state, async progress => {
+        await checkpoint(progress);
+        persisted = structuredClone(progress);
+      }, mediaExecution, profile),
+      historyPending ? syncHistory(store, getClient, profiling) : Promise.resolve(),
+      profile ?? Promise.resolve(),
+    ]);
+    if (historyPending && results[1].status === "fulfilled") {
+      // Uploads ahead of the last durable checkpoint are recovered by R2 keys.
+      const progress = results[0].status === "fulfilled" ? state : persisted;
+      progress.historyPending = false;
+      if (results[0].status === "rejected") await checkpoint(progress);
     }
+    const failure = results.find(result => result.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
     return { stage: state.media!.some(item => !item.done) ? "media" : "archive", state };
   }
   if (job.stage === "archive") {
@@ -176,14 +177,17 @@ async function syncHistory(store: Store, getClient: SyncExecution["getClient"], 
     await store.log({ scope: "b50", level: "warning", action: "history-import-failed", message: `官网历史导入失败，保留已有数据：${error instanceof Error ? error.message : "未知错误"}` });
   }
 }
-async function processMedia(store: Store, snapshot: B50Snapshot, state: SyncState, checkpoint: (state: SyncState) => Promise<void>, execution: SyncExecution) {
+async function processMedia(store: Store, snapshot: B50Snapshot, state: SyncState, checkpoint: (state: SyncState) => Promise<void>, execution: SyncExecution, profile?: Promise<StoredUser>) {
   snapshot.mediaStatus = "processing"; delete snapshot.mediaError;
   const items = state.media || (state.media = mediaItems(snapshot));
-  const pending = items.filter(item => !item.done).slice(0, 24);
+  // The profile branch owns the avatar download; never request it twice. If it
+  // falls back to bundled art, the media branch can still retry that one image.
+  const pending = items.filter(item => !item.done && !(profile && item.kind === "character")).slice(0, 24);
   // Keep two buffered images in flight. A free slot immediately takes the
   // next image, so slow potential-image generation cannot stall another slot.
-  for (let i = 0; i < pending.length; i += 4) {
+  for (let i = 0; i < pending.length || profile;) {
     const group = pending.slice(i, i + 4), writes: CacheWrite[] = [];
+    i += group.length;
     let cursor = 0, failed = false;
     const results = await Promise.allSettled(Array.from({ length: Math.min(2, group.length) }, async () => {
       while (!failed && cursor < group.length) {
@@ -202,15 +206,27 @@ async function processMedia(store: Store, snapshot: B50Snapshot, state: SyncStat
         } catch (error) { failed = true; throw error; }
       }
     }));
+    if (profile) {
+      snapshot.user = await profile;
+      for (const item of items.filter(item => item.kind === "character" && !item.done)) {
+        if (snapshot.user.avatarImageKey === item.key) {
+          item.done = true; item.cached = true;
+          const write = applyMedia(store, snapshot, item);
+          if (write) writes.push(write);
+        } else if (pending.length < 24) pending.push(item);
+      }
+      writes.push({ kind: "score-export", key: "profile", value: snapshot.user });
+    }
     snapshot.imageStats = mediaStats(items);
     const failure = results.find(result => result.status === "rejected");
     snapshot.mediaStatus = items.every(item => item.done) ? "complete" : "processing";
     // Cache entries and their owning snapshot advance together in one D1 batch.
     await store.writeSnapshot(snapshot, writes);
+    if (profile) { state.profilePending = false; profile = undefined; }
     // Partial and failed groups retain checkpoints. The final successful group
     // is persisted by the caller's atomic stage transition; R2 keys also allow
     // recovery if the invocation stops between the snapshot and that commit.
-    if (failure || i + 4 < pending.length) await checkpoint(state);
+    if (failure || i < pending.length) await checkpoint(state);
     if (failure?.status === "rejected") throw failure.reason;
     if (execution.shouldYield()) break;
   }
