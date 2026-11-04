@@ -1172,6 +1172,91 @@ describe("durable queue pipeline",()=>{
     expect(await new Store(env).sql("SELECT step FROM outbox WHERE job_id=?", job.jobId).first<number>("step")).toBe(row!.step);
     expect(row!.stage).toBe("media");
   });
+  it("returns a durable job before a slow queue send completes", async () => {
+    const cookie = await login();
+    const pending: Promise<unknown>[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    vi.mocked(env.JOBS.send).mockImplementationOnce(async message => {
+      await gate;
+      sent.push(message as JobMessage);
+    });
+    const batch = vi.spyOn(env.DB, "batch");
+    try {
+      const response = await api(env, request("/api/sync", "POST", cookie), { waitUntil: promise => { pending.push(promise); } });
+      expect(response.status).toBe(202);
+      expect(batch).toHaveBeenCalledTimes(1);
+      expect(response.headers.get("server-timing")).toMatch(/d1.job.create;dur=/);
+      expect(response.headers.get("server-timing")).not.toMatch(/queue.send;|d1.outbox.sent;/);
+      const payload = await response.json() as { jobId: string; job: { id: string; status: string; stage: string } };
+      expect(payload.job).toMatchObject({ id: payload.jobId, status: "queued", stage: "fetch" });
+      expect((await getJob(env, payload.jobId)).status).toBe("queued");
+      const receipt = await env.DB.prepare("SELECT sent_at FROM outbox WHERE job_id=?").bind(payload.jobId).first();
+      expect(receipt).toEqual({ sent_at: null });
+      expect(pending).toHaveLength(1);
+      expect(sent).toHaveLength(0);
+      release();
+      await Promise.all(pending);
+      expect(sent).toEqual([{ jobId: payload.jobId, step: 0 }]);
+      expect(await env.DB.prepare("SELECT sent_at FROM outbox WHERE job_id=?").bind(payload.jobId).first<number>("sent_at")).toBeGreaterThan(0);
+    } finally {
+      release();
+      await Promise.allSettled(pending);
+    }
+  });
+  it("recovers a failed background queue send after responding to the browser", async () => {
+    const cookie = await login();
+    const pending: Promise<unknown>[] = [];
+    const failure = new Error("queue unavailable");
+    vi.mocked(env.JOBS.send).mockRejectedValueOnce(failure);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await api(env, request("/api/sync", "POST", cookie), { waitUntil: promise => { pending.push(promise); } });
+    const { jobId } = await response.json() as { jobId: string };
+    await Promise.all(pending);
+    expect(response.status).toBe(202);
+    expect((await getJob(env, jobId)).status).toBe("queued");
+    expect(sent).toHaveLength(0);
+    expect(log).toHaveBeenCalledWith("[outbox] deferred", failure);
+    await recover(env);
+    expect(sent).toEqual([{ jobId, step: 0 }]);
+  });
+  it("does not accept or dispatch a job when its transaction fails", async () => {
+    const cookie = await login();
+    const waitUntil = vi.fn();
+    vi.spyOn(env.DB, "batch").mockRejectedValueOnce(new Error("database unavailable"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await api(env, request("/api/sync", "POST", cookie), { waitUntil });
+    expect(response.status).toBe(500);
+    expect(waitUntil).not.toHaveBeenCalled();
+    expect(env.JOBS.send).not.toHaveBeenCalled();
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM jobs").first<number>("count")).toBe(0);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM outbox").first<number>("count")).toBe(0);
+  });
+  it("atomically retries a failed job once without waiting for queue delivery", async () => {
+    const cookie = await login();
+    const initial = await enqueue(env, "sync");
+    sent.length = 0;
+    await env.DB.prepare("UPDATE jobs SET status='failed',stage='media',step=3,error='temporary failure' WHERE id=?").bind(initial.jobId).run();
+    const pending: Promise<unknown>[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    vi.mocked(env.JOBS.send).mockImplementationOnce(async message => { await gate; sent.push(message as JobMessage); });
+    const background = { waitUntil: (promise: Promise<unknown>) => { pending.push(promise); } };
+    try {
+      const responses = await Promise.all([0, 1].map(() => api(env, request(`/api/jobs/${initial.jobId}/retry`, "POST", cookie), background)));
+      expect(responses.map(response => response.status).sort()).toEqual([202, 409]);
+      const accepted = responses.find(response => response.status === 202)!;
+      expect(await accepted.json()).toMatchObject({ jobId: initial.jobId, job: { status: "queued", stage: "media" } });
+      expect(pending).toHaveLength(1);
+      expect(sent).toHaveLength(0);
+      release();
+      await Promise.all(pending);
+      expect(sent).toEqual([{ jobId: initial.jobId, step: 4 }]);
+    } finally {
+      release();
+      await Promise.allSettled(pending);
+    }
+  });
   it("deduplicates concurrent submits and cron dates, ignores repeated deliveries",async()=>{
     const [a,b]=await Promise.all([enqueue(env,'sync'),enqueue(env,'sync')]);expect(a.jobId).toBe(b.jobId);
     const [c,d]=await Promise.all([enqueue(env,'sync','daily','daily:2026-10-14'),enqueue(env,'sync','daily','daily:2026-10-14')]);expect(c.jobId).toBe(d.jobId);

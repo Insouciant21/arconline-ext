@@ -143,9 +143,15 @@ try {
  const syncUrl=origin+'/api/sync', jobUrl=origin+`/api/jobs/${jobId}`, dashboardUrl=origin+'/api/dashboard';
  const refreshed=structuredClone(baseline);
  refreshed.latest.best50[0].score++;
- let jobReads=0, dashboardReads=0, terminalJobReads=0, finishJob=false;
+ let jobReads=0, dashboardReads=0, terminalJobReads=0, finishJob=false, submitReads=0;
+ let releaseSubmission;
+ const submissionGate=new Promise(resolve=>{releaseSubmission=resolve});
  // These routes keep the smoke test from submitting a real synchronization job.
- await page.route(syncUrl,route=>route.fulfill({status:202,json:{jobId,status:'queued'}}));
+ await page.route(syncUrl,async route=>{
+  submitReads++;
+  await submissionGate;
+  await route.fulfill({status:202,json:{jobId,status:'queued'}});
+ });
  await page.route(jobUrl,route=>{
   jobReads++;
   if(finishJob)terminalJobReads++;
@@ -158,6 +164,13 @@ try {
    :route.fulfill({json:refreshed});
  });
  await page.getByRole('button',{name:'获取 B50 & 潜力图',exact:true}).click();
+ await expect(page.locator('.job-status')).toContainText('正在提交任务…');
+ await expect(page.getByRole('button',{name:'正在提交…',exact:true})).toBeDisabled();
+ await expect.poll(()=>submitReads).toBe(1);
+ expect(jobReads).toBe(0);
+ expect(dashboardReads).toBe(0);
+ expect(await page.evaluate(()=>window.__scoreFormattingCount)).toBe(0);
+ releaseSubmission();
  await expect.poll(()=>jobReads,{timeout:10000}).toBeGreaterThanOrEqual(2);
  expect(dashboardReads).toBe(0);
  expect(await page.evaluate(()=>window.__scoreFormattingCount)).toBe(0);
