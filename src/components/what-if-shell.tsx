@@ -5,7 +5,6 @@ import {
   ArrowRight,
   Calculator,
   Loader2,
-  RotateCcw,
   Search,
   Target,
   TrendingUp,
@@ -14,6 +13,7 @@ import { AppNavigation } from "@/components/app-navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
+import { chartNoteCount } from "@/lib/chart-notes";
 import { CHART_CONSTANTS_VERSION, chartConstantForSong } from "@/lib/chart-constants";
 import { exactWeightedPotential, formatPotential } from "@/lib/potential";
 import {
@@ -34,7 +34,9 @@ import {
   formatScore,
 } from "@/lib/utils";
 import {
-  parseScoreInput,
+  farCountForMaxPureScore,
+  maxPureScoreFromFar,
+  parseFarInput,
   simulateWhatIf,
   whatIfScoreGrade,
 } from "@/lib/what-if";
@@ -46,14 +48,6 @@ const CLEAR_TYPE_OPTIONS = [
   { value: "5", label: "HC · Hard Clear", triggerLabel: "HC · 困难通关" },
   { value: "4", label: "EC · Easy Clear", triggerLabel: "EC · 简单通关" },
   { value: "0", label: "TL · Track Lost", triggerLabel: "TL · 未通关" },
-] as const;
-
-const SCORE_PRESETS = [
-  { label: "EX", score: 9_800_000 },
-  { label: "EX+", score: 9_900_000 },
-  { label: "995w", score: 9_950_000 },
-  { label: "998w", score: 9_980_000 },
-  { label: "PM", score: 10_000_000 },
 ] as const;
 
 type CatalogScope = "all" | "b50";
@@ -99,9 +93,8 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
   const [searchTerm, setSearchTerm] = React.useState("");
   const [selectedSongId, setSelectedSongId] = React.useState(defaultSong.id);
   const [selectedDifficulty, setSelectedDifficulty] = React.useState(defaultDifficulty);
-  const [scoreInput, setScoreInput] = React.useState("9950000");
+  const [farInput, setFarInput] = React.useState("0");
   const [clearType, setClearType] = React.useState(1);
-  const [constantInput, setConstantInput] = React.useState("");
   const [tableView, setTableView] = React.useState<B50TableView>("affected");
 
   const [pbLookupState, setPbLookupState] = React.useState<"idle" | "loading" | "done" | "error">("idle");
@@ -128,25 +121,17 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
       2
     );
   }, [selectedSong, selectedDifficulty]);
-  const activeCatalogDiff = React.useMemo(
-    () => getCatalogDifficulty(selectedSong, activeDifficulty),
-    [selectedSong, activeDifficulty],
-  );
-  const officialConstant = React.useMemo(
-    () => chartConstantForSong(selectedSong.id, activeDifficulty),
+  const noteCount = React.useMemo(
+    () => chartNoteCount(selectedSong.id, activeDifficulty),
     [selectedSong.id, activeDifficulty],
   );
-
-  const parsedConstantOverride = React.useMemo(() => {
-    const trimmed = constantInput.trim();
-    if (!trimmed) return null;
-    const value = Number(trimmed);
-    if (!Number.isFinite(value) || value < 0 || value > 20) return null;
-    return Math.round(value * 10) / 10;
-  }, [constantInput]);
-
-  const parsedScore = React.useMemo(() => parseScoreInput(scoreInput), [scoreInput]);
-  const effectiveScore = parsedScore ?? 0;
+  const parsedFar = React.useMemo(
+    () => parseFarInput(farInput, noteCount),
+    [farInput, noteCount],
+  );
+  const pureCount = noteCount !== null && parsedFar !== null ? noteCount - parsedFar : null;
+  const effectiveScore =
+    noteCount !== null && parsedFar !== null ? maxPureScoreFromFar(noteCount, parsedFar) : 0;
 
   const simulation = React.useMemo(
     () =>
@@ -156,9 +141,8 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
         difficulty: activeDifficulty,
         score: effectiveScore,
         clearType,
-        constantOverride: parsedConstantOverride,
       }),
-    [sortedB50, selectedSong.id, activeDifficulty, effectiveScore, clearType, parsedConstantOverride],
+    [sortedB50, selectedSong.id, activeDifficulty, effectiveScore, clearType],
   );
 
   const searchResults = React.useMemo(() => {
@@ -207,7 +191,7 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
   function selectSong(song: CatalogSong) {
     resetLookup();
     setSelectedSongId(song.id);
-    setConstantInput("");
+    setFarInput("0");
     const b50Match = sortedB50.find((entry) => entry.songId === song.id);
     const nextDiff =
       b50Match?.difficulty ??
@@ -220,17 +204,23 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
   function selectDifficulty(difficulty: number) {
     resetLookup();
     setSelectedDifficulty(difficulty);
-    setConstantInput("");
+    setFarInput("0");
   }
 
-  function applyScoreValue(value: number, nextClearType?: number) {
-    const clamped = Math.max(0, Math.min(10_100_000, Math.round(value)));
-    setScoreInput(String(clamped));
+  function applyTargetScore(targetScore: number, nextClearType?: number) {
+    if (noteCount === null) return;
+    const farCount = farCountForMaxPureScore(noteCount, targetScore);
+    if (farCount === null) return;
+    setFarInput(String(farCount));
     if (nextClearType !== undefined) {
       setClearType(nextClearType);
-    } else if (clamped >= 10_000_000 && clearType === 0) {
+    } else if (maxPureScoreFromFar(noteCount, farCount) >= 10_000_000 && clearType === 0) {
       setClearType(3);
     }
+  }
+
+  function applyFarValue(farCount: number) {
+    setFarInput(String(farCount));
   }
 
   async function lookupOfficialScore() {
@@ -297,6 +287,24 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
     simulation.impact.exactDelta > 1e-9 ? "up" : simulation.impact.exactDelta < -1e-9 ? "down" : "flat";
   const displayDeltaClass =
     simulation.impact.displayDelta > 0 ? "up" : simulation.impact.displayDelta < 0 ? "down" : "flat";
+  const milestoneScores = React.useMemo(() => {
+    const representable = (targetScore: number | null) => {
+      if (noteCount === null || targetScore === null) return null;
+      const farCount = farCountForMaxPureScore(noteCount, targetScore, "atLeast");
+      if (farCount === null) return null;
+      return { farCount, score: maxPureScoreFromFar(noteCount, farCount) };
+    };
+    return {
+      changeB50: representable(simulation.impact.minScoreToChangeB50),
+      gainDisplayPtt: representable(simulation.impact.minScoreToGainDisplayPtt),
+      enterTop10: representable(simulation.impact.minScoreToEnterTop10),
+    };
+  }, [
+    noteCount,
+    simulation.impact.minScoreToChangeB50,
+    simulation.impact.minScoreToEnterTop10,
+    simulation.impact.minScoreToGainDisplayPtt,
+  ]);
 
   return (
     <main className="app-shell what-if-shell">
@@ -311,7 +319,7 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
               测试 如果 y <span>/ SINGLE-CHART B50 SIMULATION</span>
             </h1>
             <p className="what-if-description">
-              选择一首曲目与谱面难度，输入假设分数 Y，即时推演单曲 PTT、B50 排名变化与加权潜力值增量。
+              选择曲目与难度后输入 FAR 个数，非 FAR 音符按 Max Pure（Shiny PURE）计算假设分数 Y，并即时推演单曲 PTT、B50 排名与加权潜力值变化。
             </p>
           </div>
           <div className="what-if-baseline-grid" aria-label="当前基准数据">
@@ -345,8 +353,8 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
           <div className="section-block what-if-controls">
             <div className="what-if-panel-head">
               <div>
-                <p className="section-kicker">STEP 01 · CHART &amp; SCORE</p>
-                <h2>选曲与假设分数 Y</h2>
+                <p className="section-kicker">STEP 01 · CHART &amp; FAR</p>
+                <h2>选曲与 FAR 条件</h2>
               </div>
               <Badge variant="outline">定数 v{CHART_CONSTANTS_VERSION} · {catalog.length} 首</Badge>
             </div>
@@ -474,9 +482,9 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
                     type="button"
                     variant="secondary"
                     size="sm"
-                    onClick={() => applyScoreValue(simulation.existing!.score, simulation.existing!.clearType)}
+                    onClick={() => applyTargetScore(simulation.existing!.score, simulation.existing!.clearType)}
                   >
-                    填入当前分数
+                    填入对应 FAR
                   </Button>
                 </div>
               ) : (
@@ -523,9 +531,9 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
                         type="button"
                         variant="secondary"
                         size="sm"
-                        onClick={() => applyScoreValue(pbScore.score, pbScore.clearType)}
+                        onClick={() => applyTargetScore(pbScore.score, pbScore.clearType)}
                       >
-                        填入此成绩
+                        填入对应 FAR
                       </Button>
                     ) : null}
                     <Button
@@ -544,32 +552,34 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
             </div>
 
             <div className="what-if-inputs-grid">
-              <label className="what-if-field what-if-score-field">
+              <label className="what-if-field">
                 <span>
-                  假设分数 Y
-                  <em className={`what-if-grade-chip grade-${whatIfScoreGrade(effectiveScore).toLowerCase().replace("+", "-plus")}`}>
-                    {whatIfScoreGrade(effectiveScore)}
-                  </em>
+                  FAR 个数
+                  <em>{parsedFar ?? "—"} / {noteCount ?? "—"}</em>
                 </span>
                 <input
                   type="text"
                   inputMode="numeric"
-                  value={scoreInput}
-                  onChange={(event) => setScoreInput(event.target.value)}
-                  placeholder="例如 9950000"
-                  aria-label="假设分数 Y"
+                  value={farInput}
+                  onChange={(event) => setFarInput(event.target.value)}
+                  placeholder="例如 1"
+                  aria-label="FAR 个数"
                 />
-                {parsedScore === null ? (
-                  <small className="what-if-input-error">请输入 0 至 10,100,000 的整数分数。</small>
+                {parsedFar === null ? (
+                  <small className="what-if-input-error">
+                    {noteCount === null
+                      ? "缺少该谱面的物量数据。"
+                      : `请输入 0 至 ${noteCount.toLocaleString("en-US")} 的整数。`}
+                  </small>
                 ) : (
                   <small className="what-if-input-hint">
-                    格式化：{formatScore(parsedScore)} · 单曲 PTT：{simulation.play.rating.toFixed(6)}
+                    非 FAR 音符按 Shiny PURE 计算 · Max Pure {pureCount} / {noteCount}
                   </small>
                 )}
               </label>
 
               <div className="what-if-field">
-                <label htmlFor="what-if-clear-type">Clear 状态</label>
+                <label htmlFor="what-if-clear-type">通关状态</label>
                 <Select
                   id="what-if-clear-type"
                   name="clearType"
@@ -585,72 +595,29 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
                     }
                   }}
                 />
+                <small className="what-if-input-hint">仅影响通关加成；分数由左侧 FAR 与 Max Pure 决定。</small>
               </div>
 
-              <div className="what-if-field">
-                <label htmlFor="what-if-constant">
-                  谱面定数 {simulation.play.isConstantOverridden ? "(已覆盖)" : `(官方 ${officialConstant !== null ? officialConstant.toFixed(1) : "—"})`}
-                </label>
-                <div className="what-if-constant-row">
-                  <input
-                    id="what-if-constant"
-                    type="number"
-                    min="0"
-                    max="20"
-                    step="0.1"
-                    value={constantInput}
-                    onChange={(event) => setConstantInput(event.target.value)}
-                    placeholder={
-                      officialConstant !== null
-                        ? officialConstant.toFixed(1)
-                        : activeCatalogDiff
-                          ? String(activeCatalogDiff.rating)
-                          : "10.0"
-                    }
-                  />
-                  {constantInput ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => setConstantInput("")}
-                      title="恢复官方定数"
-                    >
-                      <RotateCcw size={13} />
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-
-            <div className="what-if-presets" aria-label="快速分数预设">
-              <span>快速预设</span>
-              {SCORE_PRESETS.map((preset) => (
-                <button
-                  key={preset.label}
-                  type="button"
-                  className={parsedScore === preset.score ? "active" : ""}
-                  onClick={() => applyScoreValue(preset.score, preset.score >= 10_000_000 ? 3 : undefined)}
-                >
-                  {preset.label}
-                </button>
-              ))}
-              {simulation.existing ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => applyScoreValue(simulation.existing!.score + 10_000)}
-                  >
-                    +1w
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => applyScoreValue(simulation.existing!.score + 50_000)}
-                  >
-                    +5w
-                  </button>
-                </>
-              ) : null}
+              <label className="what-if-field what-if-score-field">
+                <span>
+                  假设分数 Y
+                  <em className={`what-if-grade-chip grade-${whatIfScoreGrade(effectiveScore).toLowerCase().replace("+", "-plus")}`}>
+                    {whatIfScoreGrade(effectiveScore)}
+                  </em>
+                </span>
+                <input
+                  type="text"
+                  value={parsedFar !== null ? formatScore(effectiveScore) : "—"}
+                  readOnly
+                  aria-readonly="true"
+                  aria-label="由 FAR 个数计算得到的假设分数 Y"
+                />
+                <small className="what-if-input-hint">
+                  {parsedFar !== null
+                    ? `单曲 PTT ${simulation.play.rating.toFixed(6)} · 定数 ${simulation.play.constant.toFixed(1)}`
+                    : "修正 FAR 个数后将自动计算。"}
+                </small>
+              </label>
             </div>
           </div>
 
@@ -714,19 +681,22 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
               <div className="what-if-milestone-grid">
                 <MilestoneButton
                   label={simulation.existing ? "刷新当前成绩" : "进入 B50 (#50)"}
-                  score={simulation.impact.minScoreToChangeB50}
-                  onSelect={(score) => applyScoreValue(score)}
+                  farCount={milestoneScores.changeB50?.farCount ?? null}
+                  score={milestoneScores.changeB50?.score ?? null}
+                  onSelect={applyFarValue}
                 />
                 <MilestoneButton
                   label={`显示 PTT +0.001 (${((Math.floor(simulation.before.exactPotential * 1000) + 1) / 1000).toFixed(3)})`}
-                  score={simulation.impact.minScoreToGainDisplayPtt}
-                  onSelect={(score) => applyScoreValue(score)}
+                  farCount={milestoneScores.gainDisplayPtt?.farCount ?? null}
+                  score={milestoneScores.gainDisplayPtt?.score ?? null}
+                  onSelect={applyFarValue}
                 />
                 <MilestoneButton
                   label={simulation.impact.previousRank && simulation.impact.previousRank <= 10 ? "已在 Top 10" : "进入 Top 10 (#10)"}
-                  score={simulation.impact.minScoreToEnterTop10}
+                  farCount={milestoneScores.enterTop10?.farCount ?? null}
+                  score={milestoneScores.enterTop10?.score ?? null}
                   alreadyDone={Boolean(simulation.impact.previousRank && simulation.impact.previousRank <= 10)}
-                  onSelect={(score) => applyScoreValue(score)}
+                  onSelect={applyFarValue}
                 />
               </div>
             </div>
@@ -898,14 +868,16 @@ function ImpactMessage({ simulation }: { simulation: ReturnType<typeof simulateW
 
 function MilestoneButton({
   label,
+  farCount,
   score,
   alreadyDone = false,
   onSelect,
 }: {
   label: string;
+  farCount: number | null;
   score: number | null;
   alreadyDone?: boolean;
-  onSelect: (score: number) => void;
+  onSelect: (farCount: number) => void;
 }) {
   if (alreadyDone) {
     return (
@@ -915,7 +887,7 @@ function MilestoneButton({
       </div>
     );
   }
-  if (score === null) {
+  if (score === null || farCount === null) {
     return (
       <div className="what-if-milestone-card is-impossible">
         <span>{label}</span>
@@ -924,10 +896,10 @@ function MilestoneButton({
     );
   }
   return (
-    <button type="button" className="what-if-milestone-card" onClick={() => onSelect(score)}>
+    <button type="button" className="what-if-milestone-card" onClick={() => onSelect(farCount)}>
       <span>{label}</span>
       <strong>{formatScore(score)}</strong>
-      <small>点击填入</small>
+      <small>FAR {farCount} · 点击填入</small>
     </button>
   );
 }

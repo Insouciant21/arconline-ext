@@ -84,12 +84,72 @@ export interface WhatIfSimulationResult {
 const MAX_CALC_SCORE = 10_000_000;
 const EPSILON = 1e-12;
 
-export function parseScoreInput(raw: string): number | null {
+export function parseFarInput(raw: string, noteCount: number | null): number | null {
+  if (noteCount === null || !Number.isSafeInteger(noteCount) || noteCount <= 0) return null;
   const cleaned = raw.trim().replace(/[,_'\u2019\s]/g, "");
   if (!/^\d+$/.test(cleaned)) return null;
   const value = Number(cleaned);
-  if (!Number.isSafeInteger(value) || value < 0 || value > 10_100_000) return null;
+  if (!Number.isSafeInteger(value) || value < 0 || value > noteCount) return null;
   return value;
+}
+
+export function maxPureScoreFromFar(noteCount: number, farCount: number): number {
+  if (!Number.isSafeInteger(noteCount) || noteCount <= 0) {
+    throw new RangeError("noteCount must be a positive integer");
+  }
+  if (!Number.isSafeInteger(farCount) || farCount < 0 || farCount > noteCount) {
+    throw new RangeError("farCount must be an integer within the chart note count");
+  }
+  const pureCount = noteCount - farCount;
+  return Math.floor((5_000_000 * (2 * pureCount + farCount)) / noteCount) + pureCount;
+}
+
+export type MaxPureScoreLookupMode = "nearest" | "atLeast" | "atMost";
+
+export function farCountForMaxPureScore(
+  noteCount: number,
+  targetScore: number,
+  mode: MaxPureScoreLookupMode = "nearest",
+): number | null {
+  if (
+    !Number.isSafeInteger(noteCount) ||
+    noteCount <= 0 ||
+    !Number.isFinite(targetScore) ||
+    targetScore < 0
+  ) {
+    return null;
+  }
+
+  if (mode === "atLeast") {
+    if (maxPureScoreFromFar(noteCount, noteCount) >= targetScore) return noteCount;
+    let result = 0;
+    for (let farCount = 0; farCount <= noteCount; farCount++) {
+      if (maxPureScoreFromFar(noteCount, farCount) < targetScore) break;
+      result = farCount;
+    }
+    return result;
+  }
+
+  if (mode === "atMost") {
+    for (let farCount = 0; farCount <= noteCount; farCount++) {
+      if (maxPureScoreFromFar(noteCount, farCount) <= targetScore) return farCount;
+    }
+    return null;
+  }
+
+  let bestFarCount = 0;
+  let bestScore = maxPureScoreFromFar(noteCount, 0);
+  let bestDistance = Math.abs(bestScore - targetScore);
+  for (let farCount = 1; farCount <= noteCount; farCount++) {
+    const score = maxPureScoreFromFar(noteCount, farCount);
+    const distance = Math.abs(score - targetScore);
+    if (distance < bestDistance || (distance === bestDistance && score > bestScore)) {
+      bestFarCount = farCount;
+      bestScore = score;
+      bestDistance = distance;
+    }
+  }
+  return bestFarCount;
 }
 
 export function whatIfScoreGrade(score: number): string {

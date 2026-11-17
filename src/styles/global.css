@@ -2771,10 +2771,10 @@ body::before {
   outline: 2px solid var(--violet);
   outline-offset: 2px;
 }
-.what-if-constant-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.what-if-field input[readonly] {
+  color: var(--violet);
+  background: var(--surface-soft);
+  cursor: default;
 }
 .what-if-grade-chip {
   padding: 2px 6px;
@@ -2792,37 +2792,6 @@ body::before {
 .what-if-input-error {
   color: var(--danger);
   font-size: 10px;
-}
-.what-if-presets {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-.what-if-presets > span {
-  margin-right: 4px;
-  color: var(--muted);
-  font-family: var(--font-heading);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .08em;
-}
-.what-if-presets button {
-  min-height: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  color: var(--ink-2);
-  background: var(--surface-soft);
-  font-family: var(--font-heading);
-  font-size: 11px;
-  font-weight: 700;
-  cursor: pointer;
-}
-.what-if-presets button:hover,
-.what-if-presets button.active {
-  border-color: var(--violet);
-  color: var(--violet);
-  background: #f2effa;
 }
 .what-if-summary-grid {
   display: grid;

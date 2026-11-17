@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import chartConstants from "../src/lib/chart-constants.json";
+import { chartNoteCount } from "../src/lib/chart-notes";
 import { chartConstantForSong } from "../src/lib/chart-constants";
 import {
   displaySongArtist,
@@ -9,7 +10,12 @@ import {
   getSongCatalog,
   searchCatalogSongs,
 } from "../src/lib/song-catalog";
-import { parseScoreInput, simulateWhatIf } from "../src/lib/what-if";
+import {
+  farCountForMaxPureScore,
+  maxPureScoreFromFar,
+  parseFarInput,
+  simulateWhatIf,
+} from "../src/lib/what-if";
 import type { Best50Score } from "../src/lib/types";
 
 function makeBest50(count = 50): Best50Score[] {
@@ -69,6 +75,19 @@ describe("song catalog", () => {
     expect(displaySongArtist(ignotus, 3)).toBe("Arcaea Sound Team");
   });
 
+  it("has note counts for every active catalog chart", () => {
+    for (const song of getSongCatalog()) {
+      for (const difficulty of song.difficulties) {
+        expect(
+          chartNoteCount(song.id, difficulty.difficulty),
+          `${song.id}:${difficulty.difficulty}`,
+        ).toEqual(expect.any(Number));
+      }
+    }
+    expect(chartNoteCount("lasteternity", 3)).toBe(790);
+    expect(chartNoteCount("lasteternity", 2)).toBeNull();
+  });
+
   it("searches songs across titles, Japanese/Korean readings, and symbols", () => {
     expect(searchCatalogSongs("w4")[0]?.id).toBe("omegafour");
     expect(searchCatalogSongs("sacrosanct")[0]?.id).toBe("sacrosanct");
@@ -80,15 +99,24 @@ describe("song catalog", () => {
 });
 
 describe("what-if simulator", () => {
-  it("parses score inputs cleanly and rejects out-of-range strings", () => {
-    expect(parseScoreInput("9950000")).toBe(9_950_000);
-    expect(parseScoreInput("9,950,000")).toBe(9_950_000);
-    expect(parseScoreInput("09'960'014")).toBe(9_960_014);
-    expect(parseScoreInput("10002000")).toBe(10_002_000);
-    expect(parseScoreInput("-1")).toBeNull();
-    expect(parseScoreInput("10100001")).toBeNull();
-    expect(parseScoreInput("abc")).toBeNull();
-    expect(parseScoreInput("")).toBeNull();
+  it("derives Max Pure scores from FAR counts", () => {
+    expect(maxPureScoreFromFar(205, 0)).toBe(10_000_205);
+    expect(maxPureScoreFromFar(205, 1)).toBe(9_975_813);
+    expect(maxPureScoreFromFar(1_450, 1)).toBe(9_998_000);
+    expect(farCountForMaxPureScore(205, 9_975_813)).toBe(1);
+    expect(farCountForMaxPureScore(205, 9_975_814, "atLeast")).toBe(0);
+  });
+
+  it("parses FAR inputs cleanly and rejects out-of-range strings", () => {
+    expect(parseFarInput("0", 205)).toBe(0);
+    expect(parseFarInput("1", 205)).toBe(1);
+    expect(parseFarInput(" 1 ", 205)).toBe(1);
+    expect(parseFarInput("-1", 205)).toBeNull();
+    expect(parseFarInput("1.5", 205)).toBeNull();
+    expect(parseFarInput("206", 205)).toBeNull();
+    expect(parseFarInput("abc", 205)).toBeNull();
+    expect(parseFarInput("", 205)).toBeNull();
+    expect(parseFarInput("1", null)).toBeNull();
   });
 
   it("computes B50 improvement, rank climb, and displaced #50 when entering B50", () => {
