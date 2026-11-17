@@ -129,7 +129,6 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
     () => parseFarInput(farInput, noteCount),
     [farInput, noteCount],
   );
-  const pureCount = noteCount !== null && parsedFar !== null ? noteCount - parsedFar : null;
   const effectiveScore =
     noteCount !== null && parsedFar !== null ? maxPureScoreFromFar(noteCount, parsedFar) : 0;
 
@@ -571,11 +570,7 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
                       ? "缺少该谱面的物量数据。"
                       : `请输入 0 至 ${noteCount.toLocaleString("en-US")} 的整数。`}
                   </small>
-                ) : (
-                  <small className="what-if-input-hint">
-                    非 FAR 音符按 Shiny PURE 计算 · Max Pure {pureCount} / {noteCount}
-                  </small>
-                )}
+                ) : null}
               </label>
 
               <div className="what-if-field">
@@ -595,7 +590,6 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
                     }
                   }}
                 />
-                <small className="what-if-input-hint">仅影响通关加成；分数由左侧 FAR 与 Max Pure 决定。</small>
               </div>
 
               <label className="what-if-field what-if-score-field">
