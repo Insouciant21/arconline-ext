@@ -318,9 +318,6 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
             <h1 id="what-if-title">
               测试 如果 y <span>/ SINGLE-CHART B50 SIMULATION</span>
             </h1>
-            <p className="what-if-description">
-              选择曲目与难度后输入 FAR 个数，非 FAR 音符按 Max Pure（Shiny PURE）计算假设分数 Y，并即时推演单曲 PTT、B50 排名与加权潜力值变化。
-            </p>
           </div>
           <div className="what-if-baseline-grid" aria-label="当前基准数据">
             <div className="what-if-baseline-item">
@@ -332,11 +329,6 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
               <span>B50 守门线 #50</span>
               <strong>{sortedB50.length >= 50 ? floorRating.toFixed(3) : "未满 50"}</strong>
               <small>Top10 门槛 {sortedB50.length >= 10 ? top10FloorRating.toFixed(3) : "—"}</small>
-            </div>
-            <div className="what-if-baseline-item">
-              <span>官网总 PTT</span>
-              <strong>{initialData.user ? initialData.user.rating.toFixed(3) : "—"}</strong>
-              <small>含近期 Recent 项</small>
             </div>
           </div>
         </section>
