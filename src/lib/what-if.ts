@@ -57,6 +57,9 @@ export interface WhatIfSimulationResult {
     score: number;
     rating: number;
     clearType: number;
+    foldedFarCount: number | null;
+    nearCount: number;
+    missCount: number;
     deltaRating: number;
   } | null;
   after: {
@@ -152,6 +155,13 @@ export function farCountForMaxPureScore(
   return bestFarCount;
 }
 
+export function foldedFarCount(score: Pick<Best50Score, "nearCount" | "missCount">): number | null {
+  if (![score.nearCount, score.missCount].every((value) => Number.isSafeInteger(value) && value >= 0)) {
+    return null;
+  }
+  return score.nearCount + score.missCount * 2;
+}
+
 export function whatIfScoreGrade(score: number): string {
   if (score >= 10_000_000) return "PM";
   if (score >= 9_900_000) return "EX+";
@@ -236,6 +246,9 @@ export function simulateWhatIf(input: WhatIfInput): WhatIfSimulationResult {
         score: existingRaw.score,
         rating: existingRaw.rating,
         clearType: existingRaw.clearType,
+        foldedFarCount: foldedFarCount(existingRaw),
+        nearCount: existingRaw.nearCount,
+        missCount: existingRaw.missCount,
         deltaRating: playRating - existingRaw.rating,
       }
     : null;

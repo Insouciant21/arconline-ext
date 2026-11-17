@@ -476,7 +476,15 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
                       #{simulation.existing.rank} · {formatScore(simulation.existing.score)}{" "}
                       <em>{clearTypeCode(simulation.existing.clearType)}</em>
                     </strong>
-                    <small>当前单曲 PTT {simulation.existing.rating.toFixed(6)}</small>
+                    <small>
+                      当前单曲 PTT {simulation.existing.rating.toFixed(6)}
+                      {simulation.existing.foldedFarCount !== null ? (
+                        <>
+                          {" "}· 折合 FAR {simulation.existing.foldedFarCount}（
+                          {simulation.existing.nearCount} FAR + {simulation.existing.missCount} LOST）
+                        </>
+                      ) : null}
+                    </small>
                   </div>
                   <Button
                     type="button"

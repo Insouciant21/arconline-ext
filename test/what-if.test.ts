@@ -12,6 +12,7 @@ import {
 } from "../src/lib/song-catalog";
 import {
   farCountForMaxPureScore,
+  foldedFarCount,
   maxPureScoreFromFar,
   parseFarInput,
   simulateWhatIf,
@@ -119,6 +120,13 @@ describe("what-if simulator", () => {
     expect(parseFarInput("1", null)).toBeNull();
   });
 
+  it("folds one LOST into two FAR for the equivalent FAR display", () => {
+    expect(foldedFarCount({ nearCount: 12, missCount: 4 })).toBe(20);
+    expect(foldedFarCount({ nearCount: 0, missCount: 0 })).toBe(0);
+    expect(foldedFarCount({ nearCount: -1, missCount: 4 })).toBeNull();
+    expect(foldedFarCount({ nearCount: 1.5, missCount: 4 })).toBeNull();
+  });
+
   it("computes B50 improvement, rank climb, and displaced #50 when entering B50", () => {
     const best50 = makeBest50(50);
     const constant = chartConstantForSong("grievouslady", 2)!;
@@ -159,6 +167,7 @@ describe("what-if simulator", () => {
       clearType: 1,
     });
     expect(improved.impact.status).toBe("improved");
+    expect(improved.existing?.foldedFarCount).toBe(5);
     expect(improved.impact.previousRank).toBe(21);
     expect(improved.impact.newRank).toBe(1);
     expect(improved.impact.exactDelta).toBeGreaterThan(0);

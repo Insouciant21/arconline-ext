@@ -2608,20 +2608,29 @@ body::before {
   gap: 4px;
 }
 .what-if-in-b50-tag {
-  padding: 2px 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 20px;
+  padding: 0 5px;
   border: 1px solid var(--violet);
   color: var(--violet);
   background: #f2effa;
   font-family: var(--font-heading);
   font-size: 9px;
   font-weight: 700;
+  line-height: 1;
 }
 .what-if-diff-pill {
-  padding: 2px 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 20px;
+  padding: 0 6px;
   font-family: var(--font-heading);
   font-size: 9px;
   font-weight: 700;
-  line-height: 1.3;
+  line-height: 1;
 }
 .what-if-song-empty {
   padding: 24px 12px;
