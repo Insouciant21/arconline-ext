@@ -550,7 +550,7 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
             <div className="what-if-panel-head">
               <div>
                 <p className="section-kicker">STEP 01 · CHART &amp; FAR</p>
-                <h2>选曲与 FAR 条件</h2>
+                <h2>选曲</h2>
               </div>
               <Badge variant="outline">定数 v{CHART_CONSTANTS_VERSION} · {catalog.length} 首</Badge>
             </div>
