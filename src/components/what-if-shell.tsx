@@ -609,7 +609,7 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
                 <small className="what-if-input-hint">
                   {parsedFar !== null
                     ? `单曲 PTT ${simulation.play.rating.toFixed(6)} · 定数 ${simulation.play.constant.toFixed(1)}`
-                    : "修正 FAR 个数后将自动计算。"}
+                    : null}
                 </small>
               </label>
             </div>
