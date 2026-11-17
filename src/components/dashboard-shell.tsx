@@ -32,6 +32,7 @@ type ChartRange = (typeof chartRanges)[number]["label"];
 const chartRanges = [
   { label: "1W", days: 7 },
   { label: "1M", days: 31 },
+  { label: "3M", days: 93 },
   { label: "1Y", days: 365 },
   { label: "3Y", days: 1095 },
   { label: "5Y", days: 1825 },
