@@ -8,6 +8,7 @@ import { Store } from "./store";
 import { getSongScores } from "./song-scores";
 import { getScoreExportProfile, refreshScoreExportProfile } from "./score-export-profile";
 import { measure, Profiler } from "./profiling";
+import { checkGameVersion } from "./arcaea-version";
 
 export async function api(env: Env, request: Request, background?: Pick<ExecutionContext, "waitUntil">): Promise<Response> {
   try {
@@ -23,6 +24,11 @@ export async function api(env: Env, request: Request, background?: Pick<Executio
     }
     if (path === "/api/auth/session") { method(request, "GET"); return json({ authenticated: true }); }
     if (path === "/api/dashboard") { method(request, "GET"); return json(await getDashboardPayload(env)); }
+    if (path === "/api/version") {
+      method(request, "GET");
+      const refresh = new URL(request.url).searchParams.get("refresh") === "1";
+      return json(await checkGameVersion(env, { refresh }));
+    }
     if (path === "/api/scores") { method(request, "GET"); return json(await getSongScores(env, new URL(request.url).searchParams)); }
     if (path === "/api/score-export/profile") {
       if (request.method === "POST") {

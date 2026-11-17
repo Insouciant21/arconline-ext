@@ -1312,4 +1312,35 @@ describe("durable queue pipeline",()=>{
     for(let i=0;i<20 && (await getJob(env,job.jobId)).status!=='succeeded';i++){const message=sent.shift();if(message)await deliver(message);}
     expect((await getJob(env,job.jobId)).status).toBe('succeeded');expect(client.getOnlineImage).toHaveBeenCalledTimes(1);
   });
+  it("checks and caches the latest Arcaea version for the dashboard",async()=>{
+    expect((await api(env,request('/api/version'))).status).toBe(401);
+    const cookie=await login();
+    const fetchSpy=vi.spyOn(globalThis,'fetch').mockResolvedValueOnce(
+      Response.json({success:true,value:{version:'7.3.0c'}})
+    );
+    const first=await api(env,request('/api/version','GET',cookie));
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({constantsVersion:'7.3.0',latestVersion:'7.3.0c',upToDate:true,source:'lowiro-apk'});
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    const cached=await api(env,request('/api/version','GET',cookie));
+    expect(cached.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    const dashboard=await api(env,request('/api/dashboard','GET',cookie));
+    expect(dashboard.status).toBe(200);
+    expect(await dashboard.json()).toMatchObject({version:{constantsVersion:'7.3.0',latestVersion:'7.3.0c',upToDate:true}});
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    fetchSpy.mockResolvedValueOnce(Response.json({success:true,value:{version:'7.4.0c'}}));
+    const refreshed=await api(env,request('/api/version?refresh=1','GET',cookie));
+    expect(refreshed.status).toBe(200);
+    expect(await refreshed.json()).toMatchObject({constantsVersion:'7.3.0',latestVersion:'7.4.0c',upToDate:false});
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    fetchSpy.mockRejectedValueOnce(new Error('network error'));
+    const failed=await api(env,request('/api/version?refresh=1','GET',cookie));
+    expect(failed.status).toBe(502);
+    fetchSpy.mockRestore();
+  });
 });

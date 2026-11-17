@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { chartConstantForSong } from "../src/lib/chart-constants";
+import { CHART_CONSTANTS_VERSION, chartConstantForSong } from "../src/lib/chart-constants";
 import { resultGrade, scoreResultData } from "../src/lib/score-result";
+import { isChartConstantsUpToDate } from "../src/lib/arcaea-version";
 import { chartConstantFromScore, playRatingFromConstant } from "../src/lib/utils";
 import type { Best50Score, SongScore } from "../src/lib/types";
 
@@ -19,6 +20,15 @@ describe("score result export data", () => {
     expect(chartConstantForSong("extradimensional", 4)).toBe(11.3);
     expect(chartConstantForSong("trickmaster", 4)).toBe(10.5);
     expect(chartConstantForSong("undefined", 2)).toBe(9.4);
+    expect(CHART_CONSTANTS_VERSION).toBe("7.3.0");
+    expect(chartConstantForSong("renegadeark", 4)).toBe(9);
+    expect(chartConstantForSong("missyou", 2)).toBe(8.4);
+    expect(chartConstantForSong("alive", 2)).toBe(10.2);
+    expect(chartConstantForSong("somniomancer", 4)).toBe(10.9);
+    expect(isChartConstantsUpToDate("7.3.0c", "7.3.0")).toBe(true);
+    expect(isChartConstantsUpToDate("7.3.1c", "7.3.0")).toBe(false);
+    expect(isChartConstantsUpToDate("7.4.0c", "7.3.0")).toBe(false);
+    expect(isChartConstantsUpToDate("7.2.9c", "7.3.0")).toBe(true);
   });
 
   it("does not substitute another difficulty or invent missing constants", () => {

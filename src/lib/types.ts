@@ -125,10 +125,20 @@ export interface DashboardPayload {
   latest: B50Snapshot | null;
   history: PotentialHistoryPoint[];
   activeJob: JobView | null;
+  version?: GameVersionStatus;
   scheduler: {
     timezone: string;
     cron: string;
   };
+}
+
+export interface GameVersionStatus {
+  constantsVersion: string;
+  latestVersion: string | null;
+  upToDate: boolean | null;
+  checkedAt: string | null;
+  source: "lowiro-apk";
+  error?: string;
 }
 
 export interface SnapshotSummary {

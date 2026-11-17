@@ -24,6 +24,7 @@ import {
 import type { DashboardPayload, JobView, StoredUser } from "@/lib/types";
 import { formatJoinDate, formatRelativeDate } from "@/lib/utils";
 import { PLAYER_PROFILE_UPDATED_EVENT, setScoreExportHint } from "@/lib/score-export-client";
+import { VersionCheck } from "@/components/version-check";
 
 type ActionState = "idle" | "syncing" | "retrying" | "importing";
 type ChartRange = (typeof chartRanges)[number]["label"];
@@ -177,6 +178,7 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
             {action === "syncing" ? <Loader2 className="spin" size={16} /> : <CloudDownload size={16} />}
             {!interactive ? "正在准备…" : action === "syncing" ? isSubmitting ? "正在提交…" : "获取中…" : "获取 B50 & 潜力图"}
           </Button>
+          <VersionCheck initialVersion={data.version} interactive={interactive} />
         </div>
       </section>
 

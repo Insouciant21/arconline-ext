@@ -1,0 +1,9 @@
+---
+import { env } from "cloudflare:workers";
+import type { Env } from "../lib/environment";
+import Layout from "../layouts/Layout.astro";
+import { WhatIfShell } from "../components/what-if-shell";
+import { getDashboardPayload } from "../lib/dashboard";
+const data = await getDashboardPayload(env as Env);
+---
+<Layout title="测试 如果 y · ArcOnline Extension"><WhatIfShell initialData={data} client:load /></Layout>

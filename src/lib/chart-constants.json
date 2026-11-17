@@ -558,5 +558,14 @@
   "schrago": [{"constant": 4.5,"old": false},{"constant": 7.5,"old": false},{"constant": 9.4,"old": false},null,{"constant": 10.2,"old": false}],
   "fatality": [{"constant": 4.5,"old": false},{"constant": 7.8,"old": false},{"constant": 9.5,"old": false},null,{"constant": 10.4,"old": false}],
   "parallax": [{"constant": 5.5,"old": false},{"constant": 8.4,"old": false},{"constant": 9.9,"old": false},null,{"constant": 11.3,"old": false}],
-  "trickmaster": [{"constant": 4.5,"old": false},{"constant": 7.8,"old": false},{"constant": 9.6,"old": false},null,{"constant": 10.5,"old": false}]
+  "trickmaster": [{"constant": 4.5,"old": false},{"constant": 7.8,"old": false},{"constant": 9.6,"old": false},null,{"constant": 10.5,"old": false}],
+  "renegadeark": [{"constant": 2.5,"old": false},{"constant": 5,"old": false},{"constant": 7.8,"old": false},null,{"constant": 9,"old": false}],
+  "missyou": [{"constant": 2,"old": false},{"constant": 5.5,"old": false},{"constant": 8.4,"old": false},null,null],
+  "speedoflight": [{"constant": 2.5,"old": false},{"constant": 5,"old": false},{"constant": 7.8,"old": false},null,{"constant": 9.3,"old": false}],
+  "fadingsky": [{"constant": 3.5,"old": false},{"constant": 6.5,"old": false},{"constant": 8.5,"old": false},null,{"constant": 9.8,"old": false}],
+  "radiant": [{"constant": 3.5,"old": false},{"constant": 6.5,"old": false},{"constant": 8.8,"old": false},null,{"constant": 10,"old": false}],
+  "alive": [{"constant": 4.5,"old": false},{"constant": 7.8,"old": false},{"constant": 10.2,"old": false},null,null],
+  "hascome": [{"constant": 4,"old": false},{"constant": 7.5,"old": false},{"constant": 9.2,"old": false},null,{"constant": 10.1,"old": false}],
+  "opspectheme": [{"constant": 4,"old": false},{"constant": 7,"old": false},{"constant": 9.6,"old": false},null,{"constant": 10.8,"old": false}],
+  "somniomancer": [{"constant": 5,"old": false},{"constant": 8.2,"old": false},{"constant": 9.9,"old": false},null,{"constant": 10.9,"old": false}]
 }

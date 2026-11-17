@@ -1,12 +1,13 @@
-import { ClipboardList, History, LayoutDashboard, Search } from "lucide-react";
+import { Calculator, ClipboardList, History, LayoutDashboard, Search } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { SignOutButton } from "@/components/sign-out-button";
 
-type Page = "overview" | "scores" | "history" | "logs";
+type Page = "overview" | "scores" | "what-if" | "history" | "logs";
 
 const links = [
   { page: "overview", href: "/", label: "概览", Icon: LayoutDashboard },
   { page: "scores", href: "/scores", label: "单曲查询", Icon: Search },
+  { page: "what-if", href: "/what-if", label: "测试 如果 y", Icon: Calculator },
   { page: "history", href: "/history", label: "历史", Icon: History },
   { page: "logs", href: "/logs", label: "日志", Icon: ClipboardList },
 ] as const;

@@ -8,20 +8,35 @@ interface SelectProps {
   name: string;
   value: string;
   onValueChange: (value: string) => void;
-  options: readonly { value: string; label: string }[];
+  options: readonly { value: string; label: string; triggerLabel?: string }[];
+  contentClassName?: string;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function Select({ id, name, value, onValueChange, options }: SelectProps) {
+export function Select({ id, name, value, onValueChange, options, contentClassName, onOpenChange }: SelectProps) {
+  const selectedOption = options.find(option => option.value === value);
+
   return (
-    <SelectPrimitive.Root name={name} value={value} onValueChange={onValueChange}>
-      <SelectPrimitive.Trigger id={id} className="arcaea-select-trigger">
-        <SelectPrimitive.Value>{options.find(option => option.value === value)?.label}</SelectPrimitive.Value>
+    <SelectPrimitive.Root
+      name={name}
+      value={value}
+      onValueChange={onValueChange}
+      onOpenChange={onOpenChange}
+    >
+      <SelectPrimitive.Trigger id={id} className="arcaea-select-trigger" title={selectedOption?.label}>
+        <SelectPrimitive.Value>{selectedOption?.triggerLabel ?? selectedOption?.label}</SelectPrimitive.Value>
         <SelectPrimitive.Icon className="arcaea-select-icon">
           <ChevronDown size={15} aria-hidden="true" />
         </SelectPrimitive.Icon>
       </SelectPrimitive.Trigger>
       <SelectPrimitive.Portal>
-        <SelectPrimitive.Content className="arcaea-select-content" position="popper" align="start" sideOffset={6} collisionPadding={12}>
+        <SelectPrimitive.Content
+          className={`arcaea-select-content${contentClassName ? ` ${contentClassName}` : ""}`}
+          position="popper"
+          align="start"
+          sideOffset={6}
+          collisionPadding={12}
+        >
           <SelectPrimitive.ScrollUpButton className="arcaea-select-scroll">
             <ChevronUp size={14} aria-hidden="true" />
           </SelectPrimitive.ScrollUpButton>
