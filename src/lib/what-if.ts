@@ -86,6 +86,70 @@ export interface WhatIfSimulationResult {
 
 const MAX_CALC_SCORE = 10_000_000;
 const EPSILON = 1e-12;
+export const MAX_WHAT_IF_QUEUE = 10;
+
+export interface WhatIfPlaySpec {
+  songId: string;
+  difficulty: number;
+  score: number;
+  clearType?: number;
+  constantOverride?: number | null;
+}
+
+export interface WhatIfMultiInput {
+  best50: ReadonlyArray<Best50Score>;
+  plays: ReadonlyArray<WhatIfPlaySpec>;
+  activeIndex?: number;
+}
+
+export interface WhatIfMultiEntry extends WhatIfEntry {
+  simulatedIndex: number | null;
+}
+
+export interface WhatIfMultiPlayResult {
+  index: number;
+  key: string;
+  play: WhatIfSimulationResult["play"];
+  existing: WhatIfSimulationResult["existing"];
+  status: WhatIfImpactStatus;
+  newRank: number | null;
+  previousRank: number | null;
+  rankDelta: number | null;
+  ratingGapToChangeB50: number;
+}
+
+export interface WhatIfMultiMilestones {
+  baselineDisplayPotential: number;
+  minScoreToChangeB50: number | null;
+  minScoreToGainDisplayPtt: number | null;
+  minScoreToEnterTop10: number | null;
+  alreadyInTop10: boolean;
+  existingInBaseline: boolean;
+  constant: number;
+  clearType: number;
+}
+
+export interface WhatIfMultiSimulationResult {
+  before: WhatIfSimulationResult["before"];
+  plays: WhatIfMultiPlayResult[];
+  after: {
+    exactPotential: number;
+    displayPotential: number;
+    top10Sum: number;
+    rest40Sum: number;
+    best50: WhatIfMultiEntry[];
+    displaced: Array<Best50Score & { previousRank: number }>;
+  };
+  impact: {
+    exactDelta: number;
+    displayDelta: number;
+    improvedCount: number;
+    enteredCount: number;
+    unchangedCount: number;
+    displacedCount: number;
+  };
+  activeMilestones: WhatIfMultiMilestones | null;
+}
 
 export function parseFarInput(raw: string, noteCount: number | null): number | null {
   if (noteCount === null || !Number.isSafeInteger(noteCount) || noteCount <= 0) return null;
@@ -203,14 +267,22 @@ function binarySearchMinScore(predicate: (score: number) => boolean): number | n
   return low;
 }
 
-export function simulateWhatIf(input: WhatIfInput): WhatIfSimulationResult {
-  const orderedBefore = sortBest50(input.best50);
-  const beforeExact = exactWeightedPotential(orderedBefore);
-  const beforeDisplay = formatPotential(beforeExact);
-  const beforeSums = summarizeRatings(orderedBefore);
-  const floorRating = orderedBefore.length >= 50 ? orderedBefore[49].rating : 0;
-  const top10FloorRating = orderedBefore.length >= 10 ? orderedBefore[9].rating : 0;
+interface ResolvedPlaySpec {
+  index: number;
+  key: string;
+  play: WhatIfSimulationResult["play"];
+  existing: WhatIfSimulationResult["existing"];
+  existingIndex: number;
+  existingRaw: Best50Score | null;
+  syntheticEntry: Best50Score;
+}
 
+function resolvePlaySpec(
+  orderedBefore: ReadonlyArray<Best50Score>,
+  input: WhatIfPlaySpec,
+  index: number,
+): ResolvedPlaySpec {
+  const key = `${input.songId}:${input.difficulty}`;
   const song = getSongById(input.songId);
   const catalogDiff = song ? getCatalogDifficulty(song, input.difficulty) : undefined;
   const officialConstant = chartConstantForSong(input.songId, input.difficulty);
@@ -277,6 +349,337 @@ export function simulateWhatIf(input: WhatIfInput): WhatIfSimulationResult {
     rating: playRating,
   };
 
+  return {
+    index,
+    key,
+    play: {
+      songId: input.songId,
+      difficulty: input.difficulty,
+      ...(difficultyAlias !== undefined ? { difficultyAlias } : {}),
+      title,
+      artist,
+      score: input.score,
+      clearType,
+      grade: whatIfScoreGrade(input.score),
+      constant,
+      officialConstant,
+      isConstantOverridden,
+      rating: playRating,
+    },
+    existing,
+    existingIndex,
+    existingRaw,
+    syntheticEntry,
+  };
+}
+
+function mergeResolvedPlays(
+  orderedBefore: ReadonlyArray<Best50Score>,
+  resolvedPlays: ReadonlyArray<ResolvedPlaySpec>,
+) {
+  const winningByKey = new Map<string, ResolvedPlaySpec>();
+  for (const resolved of resolvedPlays) {
+    const prev = winningByKey.get(resolved.key);
+    if (!prev || resolved.play.rating > prev.play.rating + EPSILON) {
+      winningByKey.set(resolved.key, resolved);
+    }
+  }
+
+  const replacedExistingIndices = new Set<number>();
+  const pool: Array<{
+    item: Best50Score;
+    order: number;
+    isSimulated: boolean;
+    simulatedIndex: number | null;
+    key: string;
+  }> = [];
+
+  for (const resolved of winningByKey.values()) {
+    if (resolved.existingRaw && resolved.existingIndex >= 0) {
+      if (resolved.play.rating > resolved.existingRaw.rating + EPSILON) {
+        replacedExistingIndices.add(resolved.existingIndex);
+        pool.push({
+          item: resolved.syntheticEntry,
+          order: -100 + resolved.index,
+          isSimulated: true,
+          simulatedIndex: resolved.index,
+          key: resolved.key,
+        });
+      }
+    } else if (resolved.play.rating > EPSILON) {
+      pool.push({
+        item: resolved.syntheticEntry,
+        order: 100 + resolved.index,
+        isSimulated: true,
+        simulatedIndex: resolved.index,
+        key: resolved.key,
+      });
+    }
+  }
+
+  orderedBefore.forEach((item, idx) => {
+    if (!replacedExistingIndices.has(idx)) {
+      pool.push({
+        item,
+        order: idx,
+        isSimulated: false,
+        simulatedIndex: null,
+        key: `${item.songId}:${item.difficulty}`,
+      });
+    }
+  });
+
+  pool.sort((a, b) => (b.item.rating !== a.item.rating ? b.item.rating - a.item.rating : a.order - b.order));
+  const top50 = pool.slice(0, 50);
+  const displaced: Array<Best50Score & { previousRank: number }> = [];
+  for (const dropped of pool.slice(50)) {
+    if (!dropped.isSimulated) {
+      const previousRank = orderedBefore.findIndex(
+        (item) => `${item.songId}:${item.difficulty}` === dropped.key,
+      );
+      if (previousRank >= 0) {
+        displaced.push({ ...dropped.item, previousRank: previousRank + 1 });
+      }
+    }
+  }
+  displaced.sort((a, b) => a.previousRank - b.previousRank);
+
+  return { winningByKey, top50, displaced };
+}
+
+function computeMilestonesAgainstBaseline(
+  baseline: ReadonlyArray<Best50Score>,
+  songId: string,
+  difficulty: number,
+  constant: number,
+  clearType: number,
+): WhatIfMultiMilestones {
+  const orderedBaseline = sortBest50(baseline);
+  const baselineExact = exactWeightedPotential(orderedBaseline);
+  const baselineDisplay = formatPotential(baselineExact);
+  const baselineFloorRating = orderedBaseline.length >= 50 ? orderedBaseline[49].rating : 0;
+  const baselineTop10FloorRating = orderedBaseline.length >= 10 ? orderedBaseline[9].rating : 0;
+  const existingIndex = orderedBaseline.findIndex(
+    (entry) => entry.songId === songId && entry.difficulty === difficulty,
+  );
+  const existingEntry = existingIndex >= 0 ? orderedBaseline[existingIndex] : null;
+  const thresholdRating = existingEntry
+    ? existingEntry.rating
+    : orderedBaseline.length >= 50
+      ? baselineFloorRating
+      : 0;
+
+  const minScoreToChangeB50 = binarySearchMinScore((candidateScore) => {
+    const rating = playRatingFromConstant(constant, { score: candidateScore, clearType });
+    return rating > thresholdRating + EPSILON;
+  });
+
+  const baselineDisplayInt = Math.floor(baselineExact * 1000);
+  const simulateExactForScore = (candidateScore: number) => {
+    const candidateRating = playRatingFromConstant(constant, { score: candidateScore, clearType });
+    if (existingEntry) {
+      if (candidateRating <= existingEntry.rating + EPSILON) return baselineExact;
+      const list = orderedBaseline.map((entry, idx) =>
+        idx === existingIndex ? { rating: candidateRating } : entry,
+      );
+      return exactWeightedPotential(list);
+    }
+    if (orderedBaseline.length >= 50 && candidateRating <= baselineFloorRating + EPSILON) return baselineExact;
+    if (orderedBaseline.length < 50 && candidateRating <= EPSILON) return baselineExact;
+    return exactWeightedPotential([...orderedBaseline, { rating: candidateRating }]);
+  };
+
+  const minScoreToGainDisplayPtt = binarySearchMinScore(
+    (candidateScore) => Math.floor(simulateExactForScore(candidateScore) * 1000) >= baselineDisplayInt + 1,
+  );
+
+  const alreadyInTop10 = existingIndex >= 0 && existingIndex < 10;
+  const minScoreToEnterTop10 = alreadyInTop10
+    ? null
+    : orderedBaseline.length < 10
+      ? binarySearchMinScore(
+          (candidateScore) => playRatingFromConstant(constant, { score: candidateScore, clearType }) > EPSILON,
+        )
+      : binarySearchMinScore(
+          (candidateScore) =>
+            playRatingFromConstant(constant, { score: candidateScore, clearType }) >
+            baselineTop10FloorRating + EPSILON,
+        );
+
+  return {
+    baselineDisplayPotential: baselineDisplay,
+    minScoreToChangeB50,
+    minScoreToGainDisplayPtt,
+    minScoreToEnterTop10,
+    alreadyInTop10,
+    existingInBaseline: Boolean(existingEntry),
+    constant,
+    clearType,
+  };
+}
+
+export function simulateMultiWhatIf(input: WhatIfMultiInput): WhatIfMultiSimulationResult {
+  const orderedBefore = sortBest50(input.best50);
+  const beforeExact = exactWeightedPotential(orderedBefore);
+  const beforeDisplay = formatPotential(beforeExact);
+  const beforeSums = summarizeRatings(orderedBefore);
+  const floorRating = orderedBefore.length >= 50 ? orderedBefore[49].rating : 0;
+  const top10FloorRating = orderedBefore.length >= 10 ? orderedBefore[9].rating : 0;
+
+  const previousRankMap = new Map<string, number>();
+  orderedBefore.forEach((entry, idx) => {
+    previousRankMap.set(`${entry.songId}:${entry.difficulty}`, idx + 1);
+  });
+
+  const resolvedPlays = input.plays.map((play, idx) => resolvePlaySpec(orderedBefore, play, idx));
+  const { winningByKey, top50, displaced } = mergeResolvedPlays(orderedBefore, resolvedPlays);
+
+  const afterEntries: WhatIfMultiEntry[] = top50.map(({ item, isSimulated, simulatedIndex }, idx) => {
+    const rank = idx + 1;
+    const key = `${item.songId}:${item.difficulty}`;
+    const previousRank = previousRankMap.get(key) ?? null;
+    const rankDelta = previousRank !== null ? previousRank - rank : null;
+    const matchedWinner = simulatedIndex !== null ? winningByKey.get(key) : undefined;
+    const effectiveConstant = isSimulated && matchedWinner
+      ? matchedWinner.play.constant
+      : chartConstantForSong(item.songId, item.difficulty) ?? chartConstantFromScore(item);
+    return {
+      ...item,
+      rank,
+      previousRank,
+      rankDelta,
+      isSimulated,
+      simulatedIndex,
+      effectiveConstant,
+    };
+  });
+
+  const afterExact = exactWeightedPotential(afterEntries);
+  const afterDisplay = formatPotential(afterExact);
+  const afterSums = summarizeRatings(afterEntries);
+
+  const afterRankByKey = new Map<string, number>();
+  afterEntries.forEach((entry) => {
+    afterRankByKey.set(`${entry.songId}:${entry.difficulty}`, entry.rank);
+  });
+
+  let improvedCount = 0;
+  let enteredCount = 0;
+  let unchangedCount = 0;
+
+  const playResults: WhatIfMultiPlayResult[] = resolvedPlays.map((resolved) => {
+    const isWinner = winningByKey.get(resolved.key)?.index === resolved.index;
+    const afterRank = afterRankByKey.get(resolved.key) ?? null;
+    const previousRank = resolved.existing?.rank ?? null;
+    const otherPlays = resolvedPlays.filter((_, idx) => idx !== resolved.index);
+    const otherMerged = mergeResolvedPlays(orderedBefore, otherPlays);
+    const otherBaseline = otherMerged.top50.map((entry) => entry.item);
+    const otherExisting = otherBaseline.find(
+      (entry) => entry.songId === resolved.play.songId && entry.difficulty === resolved.play.difficulty,
+    );
+    const otherFloor = otherBaseline.length >= 50 ? otherBaseline[49].rating : 0;
+    const threshold = otherExisting ? otherExisting.rating : otherFloor;
+
+    let status: WhatIfImpactStatus;
+    if (resolved.existingRaw) {
+      if (isWinner && resolved.play.rating > resolved.existingRaw.rating + EPSILON) {
+        status = "improved";
+        improvedCount++;
+      } else {
+        status = Math.abs(resolved.play.rating - resolved.existingRaw.rating) <= EPSILON
+          ? "unchanged_equal"
+          : "unchanged_below_pb";
+        unchangedCount++;
+      }
+    } else if (isWinner && afterRank !== null) {
+      status = "entered_b50";
+      enteredCount++;
+    } else {
+      status = "unchanged_below_floor";
+      unchangedCount++;
+    }
+
+    return {
+      index: resolved.index,
+      key: resolved.key,
+      play: resolved.play,
+      existing: resolved.existing,
+      status,
+      newRank: afterRank,
+      previousRank,
+      rankDelta: previousRank !== null && afterRank !== null ? previousRank - afterRank : null,
+      ratingGapToChangeB50: Math.max(0, threshold - resolved.play.rating),
+    };
+  });
+
+  const activeIdx =
+    input.activeIndex !== undefined &&
+    input.activeIndex >= 0 &&
+    input.activeIndex < resolvedPlays.length
+      ? input.activeIndex
+      : 0;
+  const activeResolved = resolvedPlays[activeIdx] ?? null;
+  let activeMilestones: WhatIfMultiMilestones | null = null;
+  if (activeResolved) {
+    const otherPlays = resolvedPlays.filter((_, idx) => idx !== activeIdx);
+    const otherMerged = mergeResolvedPlays(orderedBefore, otherPlays);
+    activeMilestones = computeMilestonesAgainstBaseline(
+      otherMerged.top50.map((entry) => entry.item),
+      activeResolved.play.songId,
+      activeResolved.play.difficulty,
+      activeResolved.play.constant,
+      activeResolved.play.clearType,
+    );
+  }
+
+  return {
+    before: {
+      exactPotential: beforeExact,
+      displayPotential: beforeDisplay,
+      top10Sum: beforeSums.top10Sum,
+      rest40Sum: beforeSums.rest40Sum,
+      floorRating,
+      top10FloorRating,
+      count: orderedBefore.length,
+    },
+    plays: playResults,
+    after: {
+      exactPotential: afterExact,
+      displayPotential: afterDisplay,
+      top10Sum: afterSums.top10Sum,
+      rest40Sum: afterSums.rest40Sum,
+      best50: afterEntries,
+      displaced,
+    },
+    impact: {
+      exactDelta: afterExact - beforeExact,
+      displayDelta: Math.round((afterDisplay - beforeDisplay) * 1000) / 1000,
+      improvedCount,
+      enteredCount,
+      unchangedCount,
+      displacedCount: displaced.length,
+    },
+    activeMilestones,
+  };
+}
+
+export function simulateWhatIf(input: WhatIfInput): WhatIfSimulationResult {
+  const orderedBefore = sortBest50(input.best50);
+  const beforeExact = exactWeightedPotential(orderedBefore);
+  const beforeDisplay = formatPotential(beforeExact);
+  const beforeSums = summarizeRatings(orderedBefore);
+  const floorRating = orderedBefore.length >= 50 ? orderedBefore[49].rating : 0;
+  const top10FloorRating = orderedBefore.length >= 10 ? orderedBefore[9].rating : 0;
+
+  const resolved = resolvePlaySpec(orderedBefore, input, 0);
+  const { existingIndex, existingRaw, syntheticEntry, existing } = resolved;
+  const { constant, clearType, rating: playRating } = resolved.play;
+
+  const previousRankMap = new Map<string, number>();
+  orderedBefore.forEach((entry, idx) => {
+    previousRankMap.set(`${entry.songId}:${entry.difficulty}`, idx + 1);
+  });
+
   let status: WhatIfImpactStatus;
   let rawAfter: Array<{ item: Best50Score; order: number; isSimulated: boolean }>;
   let displaced: (Best50Score & { previousRank: number }) | null = null;
@@ -341,36 +744,13 @@ export function simulateWhatIf(input: WhatIfInput): WhatIfSimulationResult {
   const thresholdRating = existingRaw ? existingRaw.rating : orderedBefore.length >= 50 ? floorRating : 0;
   const ratingGapToChangeB50 = Math.max(0, thresholdRating - playRating);
 
-  const minScoreToChangeB50 = binarySearchMinScore((candidateScore) => {
-    const r = playRatingFromConstant(constant, { score: candidateScore, clearType });
-    return r > thresholdRating + EPSILON;
-  });
-
-  const beforeDisplayInt = Math.floor(beforeExact * 1000);
-  const simulateExactForScore = (candidateScore: number) => {
-    const candidateRating = playRatingFromConstant(constant, { score: candidateScore, clearType });
-    if (existingRaw) {
-      if (candidateRating <= existingRaw.rating + EPSILON) return beforeExact;
-      const list = orderedBefore.map((entry, idx) => (idx === existingIndex ? { rating: candidateRating } : entry));
-      return exactWeightedPotential(list);
-    }
-    if (orderedBefore.length >= 50 && candidateRating <= floorRating + EPSILON) return beforeExact;
-    if (orderedBefore.length < 50 && candidateRating <= EPSILON) return beforeExact;
-    return exactWeightedPotential([...orderedBefore, { rating: candidateRating }]);
-  };
-
-  const minScoreToGainDisplayPtt = binarySearchMinScore(
-    (candidateScore) => Math.floor(simulateExactForScore(candidateScore) * 1000) >= beforeDisplayInt + 1,
+  const milestones = computeMilestonesAgainstBaseline(
+    orderedBefore,
+    input.songId,
+    input.difficulty,
+    constant,
+    clearType,
   );
-
-  const minScoreToEnterTop10 =
-    previousRank !== null && previousRank <= 10
-      ? null
-      : orderedBefore.length < 10
-        ? binarySearchMinScore((candidateScore) => playRatingFromConstant(constant, { score: candidateScore, clearType }) > EPSILON)
-        : binarySearchMinScore(
-            (candidateScore) => playRatingFromConstant(constant, { score: candidateScore, clearType }) > top10FloorRating + EPSILON,
-          );
 
   return {
     before: {
@@ -382,20 +762,7 @@ export function simulateWhatIf(input: WhatIfInput): WhatIfSimulationResult {
       top10FloorRating,
       count: orderedBefore.length,
     },
-    play: {
-      songId: input.songId,
-      difficulty: input.difficulty,
-      ...(difficultyAlias !== undefined ? { difficultyAlias } : {}),
-      title,
-      artist,
-      score: input.score,
-      clearType,
-      grade: whatIfScoreGrade(input.score),
-      constant,
-      officialConstant,
-      isConstantOverridden,
-      rating: playRating,
-    },
+    play: resolved.play,
     existing,
     after: {
       exactPotential: afterExact,
@@ -413,9 +780,9 @@ export function simulateWhatIf(input: WhatIfInput): WhatIfSimulationResult {
       rankDelta,
       status,
       ratingGapToChangeB50,
-      minScoreToChangeB50,
-      minScoreToGainDisplayPtt,
-      minScoreToEnterTop10,
+      minScoreToChangeB50: milestones.minScoreToChangeB50,
+      minScoreToGainDisplayPtt: milestones.minScoreToGainDisplayPtt,
+      minScoreToEnterTop10: milestones.minScoreToEnterTop10,
     },
   };
 }

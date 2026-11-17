@@ -15,6 +15,7 @@ import {
   foldedFarCount,
   maxPureScoreFromFar,
   parseFarInput,
+  simulateMultiWhatIf,
   simulateWhatIf,
 } from "../src/lib/what-if";
 import type { Best50Score } from "../src/lib/types";
@@ -279,5 +280,133 @@ describe("what-if simulator", () => {
     expect(result.impact.status).toBe("entered_b50");
     expect(result.impact.newRank).toBe(1);
     expect(result.after.exactPotential).toBeCloseTo(result.play.rating * 2 / 60, 6);
+  });
+
+  it("keeps the single-play multi result consistent with the legacy simulator", () => {
+    const best50 = makeBest50(50);
+    const legacy = simulateWhatIf({
+      best50,
+      songId: "grievouslady",
+      difficulty: 2,
+      score: 9_950_000,
+      clearType: 1,
+    });
+    const multi = simulateMultiWhatIf({
+      best50,
+      plays: [{ songId: "grievouslady", difficulty: 2, score: 9_950_000, clearType: 1 }],
+      activeIndex: 0,
+    });
+
+    expect(multi.plays[0].status).toBe(legacy.impact.status);
+    expect(multi.plays[0].newRank).toBe(legacy.impact.newRank);
+    expect(multi.after.exactPotential).toBeCloseTo(legacy.after.exactPotential, 9);
+    expect(multi.impact.displayDelta).toBe(legacy.impact.displayDelta);
+    expect(multi.activeMilestones?.minScoreToChangeB50).toBe(legacy.impact.minScoreToChangeB50);
+    expect(multi.activeMilestones?.minScoreToGainDisplayPtt).toBe(
+      legacy.impact.minScoreToGainDisplayPtt,
+    );
+  });
+
+  it("combines multiple plays, tracks mixed outcomes, and displaces every dropped B50 entry", () => {
+    const best50 = makeBest50(50);
+    const result = simulateMultiWhatIf({
+      best50,
+      plays: [
+        { songId: "testify", difficulty: 3, score: 9_950_000, clearType: 1 },
+        { songId: "grievouslady", difficulty: 2, score: 9_950_000, clearType: 1 },
+        { songId: "worldender", difficulty: 3, score: 9_400_000, clearType: 1 },
+      ],
+    });
+
+    expect(result.impact.enteredCount).toBe(2);
+    expect(result.impact.improvedCount).toBe(0);
+    expect(result.impact.unchangedCount).toBe(1);
+    expect(result.after.displaced).toHaveLength(2);
+    expect(result.after.displaced.map((entry) => entry.previousRank)).toEqual([49, 50]);
+    expect(result.after.exactPotential).toBeGreaterThan(result.before.exactPotential);
+  });
+
+  it("supports improving an existing entry alongside new entries and below-floor plays", () => {
+    const best50 = makeBest50(50);
+    best50[20] = {
+      ...best50[20],
+      songId: "testify",
+      difficulty: 3,
+      score: 9_800_000,
+      rating: 12.6,
+    };
+
+    const result = simulateMultiWhatIf({
+      best50,
+      plays: [
+        { songId: "testify", difficulty: 3, score: 9_950_000, clearType: 1 },
+        { songId: "grievouslady", difficulty: 2, score: 9_950_000, clearType: 1 },
+        { songId: "worldender", difficulty: 3, score: 9_400_000, clearType: 1 },
+      ],
+    });
+
+    expect(result.plays.map((play) => play.status)).toEqual([
+      "improved",
+      "entered_b50",
+      "unchanged_below_floor",
+    ]);
+    expect(result.impact.improvedCount).toBe(1);
+    expect(result.impact.enteredCount).toBe(1);
+    expect(result.impact.unchangedCount).toBe(1);
+    expect(result.after.displaced).toHaveLength(1);
+  });
+
+  it("keeps different difficulties of the same song as separate simulated charts", () => {
+    const best50 = makeBest50(50);
+    const result = simulateMultiWhatIf({
+      best50,
+      plays: [
+        { songId: "testify", difficulty: 2, score: 9_950_000, clearType: 1 },
+        { songId: "testify", difficulty: 3, score: 9_950_000, clearType: 1 },
+      ],
+    });
+
+    const simulatedKeys = result.after.best50
+      .filter((entry) => entry.isSimulated)
+      .map((entry) => `${entry.songId}:${entry.difficulty}`)
+      .sort();
+    expect(simulatedKeys).toEqual(["testify:2", "testify:3"]);
+    expect(result.after.displaced).toHaveLength(2);
+  });
+
+  it("deduplicates the same song and difficulty using the highest simulated rating", () => {
+    const best50 = makeBest50(50);
+    const result = simulateMultiWhatIf({
+      best50,
+      plays: [
+        { songId: "grievouslady", difficulty: 2, score: 9_950_000, clearType: 1 },
+        { songId: "grievouslady", difficulty: 2, score: 9_900_000, clearType: 1 },
+      ],
+    });
+
+    expect(result.after.best50.filter((entry) => entry.isSimulated)).toHaveLength(1);
+    expect(result.after.displaced).toHaveLength(1);
+    expect(result.plays[0].status).toBe("entered_b50");
+    expect(result.plays[1].status).toBe("unchanged_below_floor");
+    expect(result.after.best50.find((entry) => entry.isSimulated)?.score).toBe(9_950_000);
+  });
+
+  it("computes active milestones against the other queued plays as the baseline", () => {
+    const best50 = makeBest50(50);
+    const plays = [
+      { songId: "testify", difficulty: 3, score: 9_950_000, clearType: 1 },
+      { songId: "grievouslady", difficulty: 2, score: 9_950_000, clearType: 1 },
+    ] as const;
+    const firstActive = simulateMultiWhatIf({ best50, plays, activeIndex: 0 });
+    const secondActive = simulateMultiWhatIf({ best50, plays, activeIndex: 1 });
+
+    expect(firstActive.activeMilestones?.baselineDisplayPotential).toBeGreaterThan(
+      firstActive.before.displayPotential,
+    );
+    expect(secondActive.activeMilestones?.baselineDisplayPotential).toBeGreaterThan(
+      secondActive.before.displayPotential,
+    );
+    expect(firstActive.activeMilestones?.minScoreToChangeB50).not.toBeNull();
+    expect(secondActive.activeMilestones?.minScoreToChangeB50).not.toBeNull();
   });
 });
