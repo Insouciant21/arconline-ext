@@ -904,13 +904,12 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
               </label>
             </div>
 
-            <div className="what-if-queue-block" aria-label="联合推演曲目队列">
-              <div className="what-if-queue-header">
-                <div className="what-if-queue-title">
-                  <span>联合推演队列 ({queue.length}/{MAX_WHAT_IF_QUEUE})</span>
-                  {!isMulti ? <small>点击上方曲目右侧「+」可叠加多首共同推演</small> : null}
-                </div>
-                {isMulti ? (
+            {isMulti ? (
+              <div className="what-if-queue-block" aria-label="联合推演曲目队列">
+                <div className="what-if-queue-header">
+                  <div className="what-if-queue-title">
+                    <span>联合推演队列 ({queue.length}/{MAX_WHAT_IF_QUEUE})</span>
+                  </div>
                   <div className="what-if-queue-actions">
                     <button type="button" onClick={resetAllFar}>
                       全部 0 FAR
@@ -919,9 +918,7 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
                       仅留当前
                     </button>
                   </div>
-                ) : null}
-              </div>
-              {isMulti ? (
+                </div>
                 <div className="what-if-queue-list" role="list">
                   {resolvedQueue.map((item, idx) => {
                     const playResult = simulation.plays[idx];
@@ -979,8 +976,8 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
                     );
                   })}
                 </div>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="section-block what-if-results">
