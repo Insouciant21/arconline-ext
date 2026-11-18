@@ -20,15 +20,15 @@ describe("score result export data", () => {
     expect(chartConstantForSong("extradimensional", 4)).toBe(11.3);
     expect(chartConstantForSong("trickmaster", 4)).toBe(10.5);
     expect(chartConstantForSong("undefined", 2)).toBe(9.4);
-    expect(CHART_CONSTANTS_VERSION).toBe("7.3.0");
+    expect(CHART_CONSTANTS_VERSION).toBe("7.3.1");
     expect(chartConstantForSong("renegadeark", 4)).toBe(9);
     expect(chartConstantForSong("missyou", 2)).toBe(8.4);
     expect(chartConstantForSong("alive", 2)).toBe(10.2);
     expect(chartConstantForSong("somniomancer", 4)).toBe(10.9);
-    expect(isChartConstantsUpToDate("7.3.0c", "7.3.0")).toBe(true);
-    expect(isChartConstantsUpToDate("7.3.1c", "7.3.0")).toBe(false);
-    expect(isChartConstantsUpToDate("7.4.0c", "7.3.0")).toBe(false);
-    expect(isChartConstantsUpToDate("7.2.9c", "7.3.0")).toBe(true);
+    expect(isChartConstantsUpToDate("7.3.1c")).toBe(true);
+    expect(isChartConstantsUpToDate("7.3.2c")).toBe(false);
+    expect(isChartConstantsUpToDate("7.4.0c")).toBe(false);
+    expect(isChartConstantsUpToDate("7.3.0c")).toBe(true);
   });
 
   it("does not substitute another difficulty or invent missing constants", () => {

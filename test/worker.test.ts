@@ -1316,11 +1316,11 @@ describe("durable queue pipeline",()=>{
     expect((await api(env,request('/api/version'))).status).toBe(401);
     const cookie=await login();
     const fetchSpy=vi.spyOn(globalThis,'fetch').mockResolvedValueOnce(
-      Response.json({success:true,value:{version:'7.3.0c'}})
+      Response.json({success:true,value:{version:'7.3.1c'}})
     );
     const first=await api(env,request('/api/version','GET',cookie));
     expect(first.status).toBe(200);
-    expect(await first.json()).toMatchObject({constantsVersion:'7.3.0',latestVersion:'7.3.0c',upToDate:true,source:'lowiro-apk'});
+    expect(await first.json()).toMatchObject({constantsVersion:'7.3.1',latestVersion:'7.3.1c',upToDate:true,source:'lowiro-apk'});
     expect(fetchSpy).toHaveBeenCalledTimes(1);
 
     const cached=await api(env,request('/api/version','GET',cookie));
@@ -1329,13 +1329,13 @@ describe("durable queue pipeline",()=>{
 
     const dashboard=await api(env,request('/api/dashboard','GET',cookie));
     expect(dashboard.status).toBe(200);
-    expect(await dashboard.json()).toMatchObject({version:{constantsVersion:'7.3.0',latestVersion:'7.3.0c',upToDate:true}});
+    expect(await dashboard.json()).toMatchObject({version:{constantsVersion:'7.3.1',latestVersion:'7.3.1c',upToDate:true}});
     expect(fetchSpy).toHaveBeenCalledTimes(1);
 
     fetchSpy.mockResolvedValueOnce(Response.json({success:true,value:{version:'7.4.0c'}}));
     const refreshed=await api(env,request('/api/version?refresh=1','GET',cookie));
     expect(refreshed.status).toBe(200);
-    expect(await refreshed.json()).toMatchObject({constantsVersion:'7.3.0',latestVersion:'7.4.0c',upToDate:false});
+    expect(await refreshed.json()).toMatchObject({constantsVersion:'7.3.1',latestVersion:'7.4.0c',upToDate:false});
     expect(fetchSpy).toHaveBeenCalledTimes(2);
 
     fetchSpy.mockRejectedValueOnce(new Error('network error'));

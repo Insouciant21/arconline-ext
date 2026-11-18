@@ -1,6 +1,6 @@
 import chartConstants from "./chart-constants.json";
 
-export const CHART_CONSTANTS_VERSION = "7.3.0";
+export const CHART_CONSTANTS_VERSION = "7.3.1";
 
 type ChartConstant = { constant: number; old: boolean } | null;
 const constants: Record<string, ChartConstant[]> = chartConstants;
