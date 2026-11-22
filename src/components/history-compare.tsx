@@ -30,22 +30,48 @@ function fieldValue(field: ComparedField, value: number) {
   return value.toLocaleString("en-US");
 }
 
+type CompareKindFilter = "all" | "added" | "changed" | "removed";
+
 // Full snapshots load on demand through the shared cache (snapshot-cache.ts),
 // so comparisons reuse whatever the detail view already fetched.
-export function HistoryCompare({ summaries }: { summaries: SnapshotSummary[] }) {
-  const [beforeId, setBeforeId] = React.useState(summaries[1]?.id || summaries[0]?.id || "");
-  const [afterId, setAfterId] = React.useState(summaries[0]?.id || "");
+export function HistoryCompare({
+  summaries,
+  initialBeforeId,
+  initialAfterId,
+  onSelectionChange,
+}: {
+  summaries: SnapshotSummary[];
+  initialBeforeId?: string;
+  initialAfterId?: string;
+  onSelectionChange?: (beforeId: string, afterId: string) => void;
+}) {
+  const defaultBefore = initialBeforeId || summaries[1]?.id || summaries[0]?.id || "";
+  const defaultAfter = initialAfterId || summaries[0]?.id || "";
+  const [beforeId, setBeforeId] = React.useState(defaultBefore);
+  const [afterId, setAfterId] = React.useState(defaultAfter);
   const [showUnchanged, setShowUnchanged] = React.useState(false);
+  const [kindFilter, setKindFilter] = React.useState<CompareKindFilter>("all");
   const [failedIds, setFailedIds] = React.useState<string[]>([]);
   const [, bump] = React.useReducer((count: number) => count + 1, 0);
 
   React.useEffect(() => {
+    if (initialBeforeId && initialBeforeId !== beforeId) setBeforeId(initialBeforeId);
+  }, [initialBeforeId]);
+  React.useEffect(() => {
+    if (initialAfterId && initialAfterId !== afterId) setAfterId(initialAfterId);
+  }, [initialAfterId]);
+
+  React.useEffect(() => {
+    onSelectionChange?.(beforeId, afterId);
+  }, [beforeId, afterId, onSelectionChange]);
+
+  React.useEffect(() => {
     let active = true;
-    for (const id of [beforeId, afterId].filter(id => id && !cachedSnapshot(id))) {
+    for (const id of [beforeId, afterId].filter((id) => id && !cachedSnapshot(id))) {
       loadSnapshot(id)
         .then(() => { if (active) bump(); })
         .catch(() => {
-          if (active) setFailedIds(prev => prev.includes(id) ? prev : [...prev, id]);
+          if (active) setFailedIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
         });
     }
     return () => { active = false; };
@@ -53,7 +79,7 @@ export function HistoryCompare({ summaries }: { summaries: SnapshotSummary[] }) 
 
   const before = cachedSnapshot(beforeId);
   const after = cachedSnapshot(afterId);
-  const rows = React.useMemo(() => before && after ? compareSnapshots(before, after) : [], [before, after]);
+  const rows = React.useMemo(() => (before && after ? compareSnapshots(before, after) : []), [before, after]);
   const snapshotOptions = React.useMemo(
     () =>
       summaries.map((item) => ({
@@ -62,7 +88,29 @@ export function HistoryCompare({ summaries }: { summaries: SnapshotSummary[] }) 
       })),
     [summaries],
   );
-  if (summaries.length < 2) return <section className="history-compare"><h2>历史对比</h2><p>至少需要两次历史记录才能对比。</p></section>;
+  const kindCounts = React.useMemo(() => {
+    const counts = { added: 0, changed: 0, removed: 0, unchanged: 0 };
+    for (const row of rows) counts[row.kind]++;
+    return counts;
+  }, [rows]);
+  const visibleRows = React.useMemo(
+    () =>
+      rows.filter((row) => {
+        if (kindFilter !== "all") return row.kind === kindFilter;
+        return showUnchanged || row.kind !== "unchanged";
+      }),
+    [rows, kindFilter, showUnchanged],
+  );
+
+  if (summaries.length < 2) {
+    return (
+      <section className="history-compare">
+        <h2>历史对比</h2>
+        <p>至少需要两次历史记录才能对比。</p>
+      </section>
+    );
+  }
+
   return (
     <section className="history-compare" aria-label="历史对比">
       <h2>历史对比</h2>
@@ -101,25 +149,70 @@ export function HistoryCompare({ summaries }: { summaries: SnapshotSummary[] }) 
         <p role="alert">快照加载失败，请稍后重试。</p>
       ) : !before || !after ? (
         <p role="status">正在加载</p>
-      ) : <>
-        <div className="compare-summary">
-          <span>潜力值：{before.potential.toFixed(3)} → {after.potential.toFixed(3)} <strong>({delta(after.potential - before.potential, 3)})</strong></span>
-          <span>加权 PTT：{exactWeightedPotential(before.best50).toFixed(6)} → {exactWeightedPotential(after.best50).toFixed(6)} <strong>({delta(exactWeightedPotential(after.best50) - exactWeightedPotential(before.best50), 6)})</strong></span>
-          <span>{Object.entries(kinds).map(([kind, label]) => `${label} ${rows.filter((row) => row.kind === kind).length}`).join(" · ")}</span>
-        </div>
-        <label className="compare-filter"><input type="checkbox" checked={showUnchanged} onChange={(event) => setShowUnchanged(event.target.checked)} />显示未变化的谱面</label>
-        {!rows.some((row) => row.kind !== "unchanged") ? <p role="status">两次 B50 的谱面、成绩和排名均无变化。</p> : null}
-        <div className="compare-rows">{rows.filter((row) => showUnchanged || row.kind !== "unchanged").map((row) => {
-          const score = (row.after || row.before)!.score;
-          return <article className={`compare-row compare-${row.kind}`} key={row.key}>
-            <div className="compare-row-title"><span className="compare-kind">{kinds[row.kind]}</span><strong>{score.title.en || score.title.ja || score.title.zh || score.songId}</strong><span>{difficultyLabel(score.difficulty, score.difficultyAlias)}</span></div>
-            <div className="compare-values">
-              <span>排名：{row.before ? `#${row.before.rank}` : "—"} → {row.after ? `#${row.after.rank}` : "—"}</span>
-              {row.before && row.after ? row.fields.map((field) => <span key={field}>{labels[field]}：{fieldValue(field, row.before!.score[field])} → {fieldValue(field, row.after!.score[field])}{field === "score" || field === "rating" ? ` (${delta(row.after!.score[field] - row.before!.score[field], field === "rating" ? 3 : 0)})` : ""}</span>) : <><span>分数：{row.before ? fieldValue("score", score.score) : "—"} → {row.after ? fieldValue("score", score.score) : "—"}</span><span>单曲 PTT：{row.before ? score.rating.toFixed(3) : "—"} → {row.after ? score.rating.toFixed(3) : "—"}</span></>}
+      ) : (
+        <>
+          <div className="compare-summary">
+            <span>潜力值：{before.potential.toFixed(3)} → {after.potential.toFixed(3)} <strong>({delta(after.potential - before.potential, 3)})</strong></span>
+            <span>加权 PTT：{exactWeightedPotential(before.best50).toFixed(6)} → {exactWeightedPotential(after.best50).toFixed(6)} <strong>({delta(exactWeightedPotential(after.best50) - exactWeightedPotential(before.best50), 6)})</strong></span>
+            <span>{Object.entries(kinds).map(([kind, label]) => `${label} ${kindCounts[kind as keyof typeof kindCounts]}`).join(" · ")}</span>
+          </div>
+          <div className="compare-filter-bar">
+            <div className="compare-kind-chips" role="group" aria-label="变动类型筛选">
+              {([
+                { key: "all", label: `全部变动 (${kindCounts.added + kindCounts.changed + kindCounts.removed})` },
+                { key: "added", label: `新增 (${kindCounts.added})` },
+                { key: "changed", label: `变化 (${kindCounts.changed})` },
+                { key: "removed", label: `移出 (${kindCounts.removed})` },
+              ] as const).map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`compare-kind-chip${kindFilter === key ? " active" : ""}`}
+                  aria-pressed={kindFilter === key}
+                  onClick={() => setKindFilter(key)}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
-          </article>;
-        })}</div>
-      </>}
+            {kindFilter === "all" ? (
+              <label className="compare-filter">
+                <input type="checkbox" checked={showUnchanged} onChange={(event) => setShowUnchanged(event.target.checked)} />
+                显示未变化的谱面
+              </label>
+            ) : null}
+          </div>
+          {!rows.some((row) => row.kind !== "unchanged") ? <p role="status">两次 B50 的谱面、成绩和排名均无变化。</p> : null}
+          <div className="compare-rows">
+            {visibleRows.map((row) => {
+              const score = (row.after || row.before)!.score;
+              return (
+                <article className={`compare-row compare-${row.kind}`} key={row.key}>
+                  <div className="compare-row-title">
+                    <span className="compare-kind">{kinds[row.kind]}</span>
+                    <strong>{score.title.en || score.title.ja || score.title.zh || score.songId}</strong>
+                    <span>{difficultyLabel(score.difficulty, score.difficultyAlias)}</span>
+                  </div>
+                  <div className="compare-values">
+                    <span>排名：{row.before ? `#${row.before.rank}` : "—"} → {row.after ? `#${row.after.rank}` : "—"}</span>
+                    {row.before && row.after ? row.fields.map((field) => (
+                      <span key={field}>
+                        {labels[field]}：{fieldValue(field, row.before!.score[field])} → {fieldValue(field, row.after!.score[field])}
+                        {field === "score" || field === "rating" ? ` (${delta(row.after!.score[field] - row.before!.score[field], field === "rating" ? 3 : 0)})` : ""}
+                      </span>
+                    )) : (
+                      <>
+                        <span>分数：{row.before ? fieldValue("score", score.score) : "—"} → {row.after ? fieldValue("score", score.score) : "—"}</span>
+                        <span>单曲 PTT：{row.before ? score.rating.toFixed(3) : "—"} → {row.after ? score.rating.toFixed(3) : "—"}</span>
+                      </>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </>
+      )}
     </section>
   );
 }
