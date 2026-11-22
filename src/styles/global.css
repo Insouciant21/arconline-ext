@@ -2558,10 +2558,14 @@ html[data-gradient-scrollbar-dragging="true"] body {
   align-items: center;
   gap: 20px;
 }
+.what-if-intro > div {
+  min-width: 0;
+}
 .what-if-baseline-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+  min-width: 0;
 }
 .what-if-baseline-item {
   display: grid;
@@ -2616,10 +2620,12 @@ html[data-gradient-scrollbar-dragging="true"] body {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
   align-items: start;
   gap: 24px;
+  min-width: 0;
 }
 .what-if-controls,
 .what-if-results {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   margin-bottom: 0;
   padding: 20px;
@@ -2631,6 +2637,7 @@ html[data-gradient-scrollbar-dragging="true"] body {
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
 }
 .what-if-panel-head h2 {
   margin: 4px 0 0;
@@ -2643,6 +2650,7 @@ html[data-gradient-scrollbar-dragging="true"] body {
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 .what-if-search-box {
   display: flex;
@@ -2670,6 +2678,7 @@ html[data-gradient-scrollbar-dragging="true"] body {
 }
 .what-if-scope-tabs {
   display: inline-flex;
+  max-width: 100%;
   border: 1px solid var(--line);
   background: var(--surface-soft);
 }
@@ -2683,6 +2692,7 @@ html[data-gradient-scrollbar-dragging="true"] body {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: .05em;
+  white-space: nowrap;
   cursor: pointer;
 }
 .what-if-scope-tabs button.active {
@@ -2712,6 +2722,7 @@ html[data-gradient-scrollbar-dragging="true"] body {
   align-items: center;
   gap: 4px;
   width: 100%;
+  min-width: 0;
   padding: 4px;
   border: 1px solid transparent;
   border-left: 3px solid transparent;
@@ -2803,10 +2814,12 @@ html[data-gradient-scrollbar-dragging="true"] body {
 }
 .what-if-song-option-diffs {
   display: flex;
-  flex: none;
+  flex: 0 1 auto;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 4px;
+  max-width: 65%;
+  min-width: 0;
 }
 .what-if-in-b50-tag {
   display: inline-flex;
@@ -2846,15 +2859,17 @@ html[data-gradient-scrollbar-dragging="true"] body {
 .what-if-selected-chart {
   display: grid;
   gap: 10px;
+  min-width: 0;
   padding: 14px;
   border: 1px solid var(--line);
   background: var(--surface-soft);
 }
 .what-if-selected-top {
   display: grid;
-  grid-template-columns: minmax(150px, .8fr) minmax(0, 1.2fr);
+  grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr);
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 .what-if-selected-meta {
   min-width: 0;
@@ -2918,6 +2933,7 @@ html[data-gradient-scrollbar-dragging="true"] body {
   font-weight: 700;
 }
 .what-if-current-pb {
+  min-width: 0;
   padding: 12px 14px;
   border: 1px solid var(--line);
   background: var(--surface);
@@ -2962,8 +2978,9 @@ html[data-gradient-scrollbar-dragging="true"] body {
 }
 .what-if-inputs-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, .9fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1.15fr);
   gap: 12px;
+  min-width: 0;
 }
 .what-if-field {
   display: grid;
@@ -2974,9 +2991,11 @@ html[data-gradient-scrollbar-dragging="true"] body {
 .what-if-field > span,
 .what-if-field > label {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
+  min-width: 0;
   min-height: 19px;
   color: var(--muted);
   font-family: var(--font-heading);
@@ -3043,6 +3062,7 @@ html[data-gradient-scrollbar-dragging="true"] body {
 .what-if-queue-block {
   display: grid;
   gap: 8px;
+  min-width: 0;
   padding: 10px 12px;
   border: 1px solid var(--line);
   background: var(--surface);
@@ -3191,10 +3211,12 @@ html[data-gradient-scrollbar-dragging="true"] body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+  min-width: 0;
 }
 .what-if-stat-card {
   display: grid;
   gap: 4px;
+  min-width: 0;
   padding: 14px;
   border: 1px solid var(--line);
   background: var(--surface-soft);
@@ -3232,18 +3254,21 @@ html[data-gradient-scrollbar-dragging="true"] body {
   color: var(--muted);
   font-family: var(--font-number);
   font-size: 11px;
+  overflow-wrap: anywhere;
 }
 .delta-sub-up {
   color: var(--cyan-deep) !important;
   font-weight: 700;
 }
 .what-if-impact-banner {
+  min-width: 0;
   padding: 12px 14px;
   border-left: 3px solid var(--muted-2);
   background: var(--surface-soft);
   color: var(--ink);
   font-size: 12px;
   line-height: 1.65;
+  overflow-wrap: anywhere;
 }
 .what-if-impact-banner.status-entered_b50,
 .what-if-impact-banner.status-improved {
@@ -3257,6 +3282,7 @@ html[data-gradient-scrollbar-dragging="true"] body {
 .what-if-multi-impact {
   display: grid;
   gap: 9px;
+  min-width: 0;
 }
 .what-if-impact-chips {
   display: flex;
@@ -3311,6 +3337,7 @@ html[data-gradient-scrollbar-dragging="true"] body {
 .what-if-milestones {
   display: grid;
   gap: 10px;
+  min-width: 0;
   padding: 14px;
   border: 1px solid var(--line);
   background: var(--surface);
@@ -3333,11 +3360,13 @@ html[data-gradient-scrollbar-dragging="true"] body {
   display: grid;
   justify-items: start;
   gap: 3px;
+  min-width: 0;
   padding: 10px;
   border: 1px solid var(--line);
   background: var(--surface-soft);
   color: var(--ink);
   text-align: left;
+  overflow-wrap: anywhere;
 }
 button.what-if-milestone-card {
   cursor: pointer;
@@ -3372,20 +3401,40 @@ button.what-if-milestone-card:hover {
   font-family: var(--font-body);
   font-size: 12px;
 }
-.what-if-formula span {
+.what-if-formula {
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  min-width: 0;
+}
+.what-if-formula i {
+  display: none;
+}
+.what-if-formula > span {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 5px;
+  gap: 4px 5px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.what-if-formula > span svg {
+  flex: none;
+}
+.what-if-formula .formula-result {
+  margin-left: auto;
 }
 .what-if-table-block {
   display: grid;
   gap: 10px;
+  min-width: 0;
 }
 .what-if-table-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
 }
 .what-if-table-header h3 {
   margin: 0;
@@ -3429,6 +3478,7 @@ button.what-if-milestone-card:hover {
   grid-template-columns: 36px 42px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
+  min-width: 0;
   padding: 8px 10px;
   border: 1px solid var(--line);
   background: var(--surface);
@@ -3528,9 +3578,18 @@ button.what-if-milestone-card:hover {
   margin-left: auto;
 }
 
-@media (max-width: 1080px) {
-  .what-if-intro,
+@media (max-width: 1360px) {
+  .what-if-formula .formula-result {
+    margin-left: 0;
+  }
+}
+@media (max-width: 1240px) {
   .what-if-workspace {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 1080px) {
+  .what-if-intro {
     grid-template-columns: 1fr;
   }
 }
@@ -3560,12 +3619,23 @@ button.what-if-milestone-card:hover {
   }
   .what-if-song-option-diffs {
     justify-content: flex-start;
+    max-width: 100%;
   }
   .what-if-queue-item-main {
     grid-template-columns: 24px auto minmax(0, 1fr);
     gap: 5px;
   }
   .what-if-queue-copy small {
+    white-space: normal;
+  }
+}
+@media (max-width: 420px) {
+  .what-if-b50-row {
+    grid-template-columns: 30px 36px minmax(0, 1fr) auto;
+    gap: 6px;
+    padding: 7px 8px;
+  }
+  .what-if-formula > span {
     white-space: normal;
   }
 }
