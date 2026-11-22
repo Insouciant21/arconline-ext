@@ -5,6 +5,7 @@ import { Archive, Database, History as HistoryIcon } from "lucide-react";
 import { ScoreCard } from "@/components/score-card";
 import { HistoryCompare } from "@/components/history-compare";
 import { AppNavigation } from "@/components/app-navigation";
+import { GradientScrollArea } from "@/components/ui/gradient-scroll-area";
 import type { B50Snapshot, HistoryPayload, SnapshotSummary } from "@/lib/types";
 import { cacheSnapshot, cachedSnapshot, loadSnapshot } from "@/lib/snapshot-cache";
 import { exactWeightedPotential } from "@/lib/potential";
@@ -83,7 +84,7 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
               <span>SNAPSHOT INDEX</span>
               <strong>{String(initialData.snapshots.length).padStart(2, "0")}</strong>
             </div>
-            <div className="history-index-list">
+            <GradientScrollArea className="history-index-list">
               {Object.entries(
                 initialData.snapshots.reduce<Record<string, Array<{ snapshot: SnapshotSummary; delta?: number }>>>((groups, snapshot, index) => {
                   const parts = beijingParts(snapshot.fetchedAt);
@@ -107,7 +108,7 @@ export function HistoryShell({ initialData }: { initialData: HistoryPayload }) {
                   ))}
                 </React.Fragment>
               ))}
-            </div>
+            </GradientScrollArea>
           </aside>
 
           {detail ? (

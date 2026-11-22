@@ -7,6 +7,7 @@ import { cachedSnapshot, loadSnapshot } from "@/lib/snapshot-cache";
 import { exactWeightedPotential } from "@/lib/potential";
 import { clearTypeLabel, difficultyLabel } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 
 const labels: Record<ComparedField, string> = {
   score: "分数", rating: "单曲 PTT", perfectCount: "PURE", nearCount: "FAR",
@@ -53,15 +54,48 @@ export function HistoryCompare({ summaries }: { summaries: SnapshotSummary[] }) 
   const before = cachedSnapshot(beforeId);
   const after = cachedSnapshot(afterId);
   const rows = React.useMemo(() => before && after ? compareSnapshots(before, after) : [], [before, after]);
+  const snapshotOptions = React.useMemo(
+    () =>
+      summaries.map((item) => ({
+        value: item.id,
+        label: `${timestamp(item.fetchedAt)} · ${item.potential.toFixed(3)} · ${item.id}`,
+      })),
+    [summaries],
+  );
   if (summaries.length < 2) return <section className="history-compare"><h2>历史对比</h2><p>至少需要两次历史记录才能对比。</p></section>;
   return (
     <section className="history-compare" aria-label="历史对比">
       <h2>历史对比</h2>
       <p>选择基准 A 和目标 B，差值按 B − A 计算；新增和移出仅表示 B50 列表成员变化。时间为北京时间。</p>
       <div className="compare-controls">
-        <label>基准 A<select value={beforeId} onChange={(event) => setBeforeId(event.target.value)}>{summaries.map((item) => <option key={item.id} value={item.id}>{timestamp(item.fetchedAt)} · {item.potential.toFixed(3)} · {item.id}</option>)}</select></label>
-        <Button variant="secondary" size="sm" onClick={() => { setBeforeId(afterId); setAfterId(beforeId); }}>交换 A / B</Button>
-        <label>目标 B<select value={afterId} onChange={(event) => setAfterId(event.target.value)}>{summaries.map((item) => <option key={item.id} value={item.id}>{timestamp(item.fetchedAt)} · {item.potential.toFixed(3)} · {item.id}</option>)}</select></label>
+        <div className="compare-field">
+          <label htmlFor="history-compare-before">基准 A</label>
+          <Select
+            id="history-compare-before"
+            name="beforeId"
+            value={beforeId}
+            onValueChange={setBeforeId}
+            options={snapshotOptions}
+          />
+        </div>
+        <Button
+          className="compare-swap-button"
+          variant="secondary"
+          size="sm"
+          onClick={() => { setBeforeId(afterId); setAfterId(beforeId); }}
+        >
+          交换 A / B
+        </Button>
+        <div className="compare-field">
+          <label htmlFor="history-compare-after">目标 B</label>
+          <Select
+            id="history-compare-after"
+            name="afterId"
+            value={afterId}
+            onValueChange={setAfterId}
+            options={snapshotOptions}
+          />
+        </div>
       </div>
       {beforeId === afterId ? <p role="status">请选择两次不同的历史记录。</p> : failedIds.includes(beforeId) || failedIds.includes(afterId) ? (
         <p role="alert">快照加载失败，请稍后重试。</p>

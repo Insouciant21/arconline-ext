@@ -13,5 +13,11 @@ const { title = "ArcOnline Extension" } = Astro.props;
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
   </head>
-  <body><slot /></body>
+  <body>
+    <slot />
+    <script>
+      import { initRootGradientScrollbar } from "../lib/gradient-scrollbar";
+      initRootGradientScrollbar();
+    </script>
+  </body>
 </html>

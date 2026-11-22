@@ -15,6 +15,7 @@ import {
 import { AppNavigation } from "@/components/app-navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { GradientScrollArea } from "@/components/ui/gradient-scroll-area";
 import { Select } from "@/components/ui/select";
 import { chartNoteCount } from "@/lib/chart-notes";
 import { CHART_CONSTANTS_VERSION, chartConstantForSong } from "@/lib/chart-constants";
@@ -590,7 +591,7 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
               </div>
             </div>
 
-            <div className="what-if-song-list" role="list" aria-label="匹配曲目">
+            <GradientScrollArea wrapperClassName="what-if-song-list-box" className="what-if-song-list" role="list" aria-label="匹配曲目">
               {searchResults.length ? (
                 searchResults.map((song) => {
                   const isSelected = song.id === selectedSong.id;
@@ -657,7 +658,7 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
               ) : (
                 <div className="what-if-song-empty">没有匹配的曲目，可尝试输入英文原名、日文假名或歌曲 ID。</div>
               )}
-            </div>
+            </GradientScrollArea>
 
             <div className="what-if-selected-chart">
               <div className="what-if-selected-top">
@@ -919,7 +920,7 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
                     </button>
                   </div>
                 </div>
-                <div className="what-if-queue-list" role="list">
+                <GradientScrollArea className="what-if-queue-list" role="list">
                   {resolvedQueue.map((item, idx) => {
                     const playResult = simulation.plays[idx];
                     const isCurrent = item.slot.uid === activeSlot.uid;
@@ -975,7 +976,7 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
                       </div>
                     );
                   })}
-                </div>
+                </GradientScrollArea>
               </div>
             ) : null}
           </div>
@@ -1096,7 +1097,7 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
               </div>
 
               {simulation.after.best50.length ? (
-                <div className="what-if-b50-list">
+                <GradientScrollArea className="what-if-b50-list">
                   {visibleRows.map((entry, idx) => {
                     const prev = visibleRows[idx - 1];
                     const showGap = Boolean(prev && entry.rank - prev.rank > 1);
@@ -1173,7 +1174,7 @@ export function WhatIfShell({ initialData }: { initialData: DashboardPayload }) 
                       </small>
                     </div>
                   ))}
-                </div>
+                </GradientScrollArea>
               ) : (
                 <div className="what-if-song-empty">当前尚无 B50 条目；输入高于 0 的单曲 PTT 后将自动生成模拟榜。</div>
               )}

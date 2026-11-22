@@ -1,6 +1,7 @@
 import { Calculator, ClipboardList, History, LayoutDashboard, Search } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { SignOutButton } from "@/components/sign-out-button";
+import { GradientScrollArea } from "@/components/ui/gradient-scroll-area";
 
 type Page = "overview" | "scores" | "what-if" | "history" | "logs";
 
@@ -15,22 +16,24 @@ const links = [
 export function AppNavigation({ current }: { current: Page }) {
   return (
     <header className="topbar">
-      <a className="brand" href="/" aria-label="ArcOnline Extension">
-        <BrandMark />
-        <span className="brand-lockup">
-          <strong className="brand-wordmark">ArcOnline</strong>
-          <small>EXTENSION</small>
-        </span>
-      </a>
-      <nav className="topbar-actions" aria-label="主导航">
-        {links.map(({ page, href, label, Icon }) => (
-          <a key={page} className="history-nav-link" href={href} aria-current={current === page ? "page" : undefined}>
-            <Icon size={15} />
-            {label}
-          </a>
-        ))}
-        <SignOutButton />
-      </nav>
+      <GradientScrollArea wrapperClassName="topbar-scroll-box" className="topbar-scroll">
+        <a className="brand" href="/" aria-label="ArcOnline Extension">
+          <BrandMark />
+          <span className="brand-lockup">
+            <strong className="brand-wordmark">ArcOnline</strong>
+            <small>EXTENSION</small>
+          </span>
+        </a>
+        <nav className="topbar-actions" aria-label="主导航">
+          {links.map(({ page, href, label, Icon }) => (
+            <a key={page} className="history-nav-link" href={href} aria-current={current === page ? "page" : undefined}>
+              <Icon size={15} />
+              {label}
+            </a>
+          ))}
+          <SignOutButton />
+        </nav>
+      </GradientScrollArea>
     </header>
   );
 }

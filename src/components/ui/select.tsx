@@ -1,7 +1,9 @@
 "use client";
 
+import * as React from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
+import { GradientScrollbarTrack } from "@/components/ui/gradient-scroll-area";
 
 interface SelectProps {
   id: string;
@@ -15,6 +17,7 @@ interface SelectProps {
 
 export function Select({ id, name, value, onValueChange, options, contentClassName, onOpenChange }: SelectProps) {
   const selectedOption = options.find(option => option.value === value);
+  const [viewportEl, setViewportEl] = React.useState<HTMLDivElement | null>(null);
 
   return (
     <SelectPrimitive.Root
@@ -40,16 +43,19 @@ export function Select({ id, name, value, onValueChange, options, contentClassNa
           <SelectPrimitive.ScrollUpButton className="arcaea-select-scroll">
             <ChevronUp size={14} aria-hidden="true" />
           </SelectPrimitive.ScrollUpButton>
-          <SelectPrimitive.Viewport className="arcaea-select-viewport">
-            {options.map(option => (
-              <SelectPrimitive.Item key={option.value} value={option.value} className="arcaea-select-item">
-                <SelectPrimitive.ItemText>{option.label}</SelectPrimitive.ItemText>
-                <SelectPrimitive.ItemIndicator className="arcaea-select-check">
-                  <Check size={14} strokeWidth={2} aria-hidden="true" />
-                </SelectPrimitive.ItemIndicator>
-              </SelectPrimitive.Item>
-            ))}
-          </SelectPrimitive.Viewport>
+          <div className="arcaea-select-viewport-wrap">
+            <SelectPrimitive.Viewport ref={setViewportEl} className="arcaea-select-viewport">
+              {options.map(option => (
+                <SelectPrimitive.Item key={option.value} value={option.value} className="arcaea-select-item">
+                  <SelectPrimitive.ItemText>{option.label}</SelectPrimitive.ItemText>
+                  <SelectPrimitive.ItemIndicator className="arcaea-select-check">
+                    <Check size={14} strokeWidth={2} aria-hidden="true" />
+                  </SelectPrimitive.ItemIndicator>
+                </SelectPrimitive.Item>
+              ))}
+            </SelectPrimitive.Viewport>
+            <GradientScrollbarTrack target={viewportEl} className="gradient-scrollbar-select" />
+          </div>
           <SelectPrimitive.ScrollDownButton className="arcaea-select-scroll">
             <ChevronDown size={14} aria-hidden="true" />
           </SelectPrimitive.ScrollDownButton>
