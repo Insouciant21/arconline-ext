@@ -1507,6 +1507,9 @@ html[data-gradient-scrollbar-dragging="true"] body {
 }
 
 .gradient-scrollbar-root {
+  --scrollbar-width: 6px;
+  --scrollbar-width-active: 10px;
+  --scrollbar-hit-width: 18px;
   position: fixed;
   top: 0;
   right: 0;
@@ -1557,6 +1560,10 @@ html[data-gradient-scrollbar-dragging="true"] body {
 }
 
 @media (pointer: coarse) {
+  .gradient-scrollbar-root {
+    --scrollbar-width: 4px;
+  }
+
   .gradient-scrollbar,
   .gradient-scrollbar[data-visible="true"] {
     width: var(--scrollbar-width);
