@@ -1,3 +1,60 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <polygon points="32,2 62,32 32,62 2,32" fill="#814370"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs>
+    <linearGradient id="f-tl" x1="8" y1="6" x2="23" y2="23" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#bdf3ff"/>
+      <stop offset="1" stop-color="#8c7fe9"/>
+    </linearGradient>
+    <linearGradient id="f-tr" x1="25" y1="4" x2="41" y2="23" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6cc9e6"/>
+      <stop offset="1" stop-color="#6655c0"/>
+    </linearGradient>
+    <linearGradient id="f-bl" x1="7" y1="25" x2="24" y2="44" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5746ad"/>
+      <stop offset="1" stop-color="#362776"/>
+    </linearGradient>
+    <linearGradient id="f-br" x1="25" y1="26" x2="41" y2="43" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#c248a0"/>
+      <stop offset="1" stop-color="#7b236e"/>
+    </linearGradient>
+    <linearGradient id="t-tl" x1="12" y1="11" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#988cf0"/>
+      <stop offset="1" stop-color="#6d5dcb"/>
+    </linearGradient>
+    <linearGradient id="t-tr" x1="24" y1="11" x2="36" y2="24" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#836cd6"/>
+      <stop offset="1" stop-color="#8a4399"/>
+    </linearGradient>
+    <linearGradient id="t-bl" x1="12" y1="24" x2="24" y2="38" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6350b8"/>
+      <stop offset="1" stop-color="#473493"/>
+    </linearGradient>
+    <linearGradient id="t-br" x1="24" y1="24" x2="36" y2="38" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#a84293"/>
+      <stop offset="1" stop-color="#762872"/>
+    </linearGradient>
+    <linearGradient id="gem" x1="24" y1="19.2" x2="24" y2="28.8" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#97eefc"/>
+    </linearGradient>
+    <radialGradient id="glint" cx="24" cy="9.5" r="6" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff" stop-opacity=".58"/>
+      <stop offset="1" stop-color="#a6ecfb" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <path d="M24 2 43.5 24 24 46 4.5 24Z" fill="#5e4eb5"/>
+  <path d="M24 2 4.5 24 11.2 24 24 9.5Z" fill="url(#f-tl)"/>
+  <path d="M24 2 43.5 24 36.8 24 24 9.5Z" fill="url(#f-tr)"/>
+  <path d="M4.5 24 24 46 24 38.5 11.2 24Z" fill="url(#f-bl)"/>
+  <path d="M43.5 24 24 46 24 38.5 36.8 24Z" fill="url(#f-br)"/>
+  <path d="M24 9.5 11.2 24 24 24Z" fill="url(#t-tl)"/>
+  <path d="M24 9.5 36.8 24 24 24Z" fill="url(#t-tr)"/>
+  <path d="M11.2 24 24 38.5 24 24Z" fill="url(#t-bl)"/>
+  <path d="M36.8 24 24 38.5 24 24Z" fill="url(#t-br)"/>
+  <path d="M24 2v7.5M43.5 24h-6.7M24 46v-7.5M4.5 24h6.7M24 9.5 36.8 24 24 38.5 11.2 24Z" fill="none" stroke="#ffffff" stroke-opacity=".34" stroke-width=".9" stroke-linejoin="miter"/>
+  <path d="M24 9.5v5.7M36.8 24h-5.2M24 38.5v-5.7M11.2 24h5.2" fill="none" stroke="#ffffff" stroke-opacity=".22" stroke-width=".85" stroke-linejoin="miter"/>
+  <path d="M24 2 43.5 24 24 46 4.5 24Z" fill="none" stroke="#ffffff" stroke-opacity=".46" stroke-width="1" stroke-linejoin="miter"/>
+  <path d="M24 15.2 31.6 24 24 32.8 16.4 24Z" fill="#ffffff" fill-opacity=".12" stroke="#ffffff" stroke-opacity=".78" stroke-width="1.15" stroke-linejoin="miter"/>
+  <path d="M24 19.2 28.1 24 24 28.8 19.9 24Z" fill="url(#gem)"/>
+  <circle cx="24" cy="9.5" r="6" fill="url(#glint)"/>
+  <circle cx="24" cy="9.5" r="1.25" fill="#ffffff" fill-opacity=".88"/>
 </svg>
