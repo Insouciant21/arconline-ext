@@ -4687,3 +4687,54 @@ button.what-if-milestone-card:hover {
     white-space: normal;
   }
 }
+
+.profile-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.bot-bind-trigger {
+  min-height: 36px;
+}
+
+.bot-bind-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.bot-bind-command-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-soft);
+}
+
+.bot-bind-command-box code {
+  overflow-x: auto;
+  color: var(--purple);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.bot-bind-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@media (max-width: 1080px) {
+  .profile-toolbar-actions {
+    justify-content: flex-start;
+  }
+}

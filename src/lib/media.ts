@@ -7,13 +7,23 @@ import { AppError } from "./errors";
 const TTL = 31536000;
 type Background = Pick<ExecutionContext, "waitUntil">;
 
+export interface ServeMediaOptions {
+  prefix?: string;
+  privateCookie?: boolean;
+}
+
 // Call only after authenticating the request. Cached bytes are shared internally;
 // the response sent to the browser is always private and varies by login cookie.
-export async function serveMedia(env: Env, request: Request, background?: Background): Promise<Response> {
+export async function serveMedia(
+  env: Env,
+  request: Request,
+  background?: Background,
+  { prefix = "/api/media/", privateCookie = true }: ServeMediaOptions = {},
+): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD")
     throw new AppError("GET, HEAD", 405, "METHOD_NOT_ALLOWED");
   let key: string;
-  try { key = decodeURIComponent(new URL(request.url).pathname.slice("/api/media/".length)); }
+  try { key = decodeURIComponent(new URL(request.url).pathname.slice(prefix.length)); }
   catch { throw new AppError("无效的媒体路径。", 400, "INVALID_ASSET_KEY"); }
   if (!key || key.includes("..") || key.startsWith("/") || key.includes("\\") || !/^(charts|characters|potential|banners)\//.test(key))
     throw new AppError("无效的媒体路径。", 400, "INVALID_ASSET_KEY");
@@ -52,7 +62,7 @@ export async function serveMedia(env: Env, request: Request, background?: Backgr
   const headers = new Headers(response.headers);
   headers.set("cache-control", `private, max-age=${TTL}, immutable`);
   headers.set("cdn-cache-control", "no-store");
-  headers.set("vary", "Cookie");
+  if (privateCookie) headers.set("vary", "Cookie");
   headers.set("x-content-type-options", "nosniff");
   headers.set("x-media-cache", hit ? "HIT" : "MISS");
   const condition = request.headers.get("if-none-match");

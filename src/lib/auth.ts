@@ -3,9 +3,15 @@ import { AppError } from "./errors";
 
 const COOKIE = "arc_session";
 const SEVEN_DAYS = 7 * 86400;
-async function digest(value: string) {
+export async function sha256Hex(value: string) {
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+}
+export async function constantTimeEqual(left: string, right: string) {
+  const [leftDigest, rightDigest] = await Promise.all([sha256Hex(left), sha256Hex(right)]);
+  let difference = 0;
+  for (let i = 0; i < leftDigest.length; i++) difference |= leftDigest.charCodeAt(i) ^ rightDigest.charCodeAt(i);
+  return difference === 0;
 }
 function token(request: Request) {
   return request.headers.get("cookie")?.split(";").map(value => value.trim()).find(value => value.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1);
@@ -14,7 +20,7 @@ export async function authenticated(env: Env, request: Request) {
   const value = token(request);
   if (!value || !/^[a-f0-9]{64}$/.test(value)) return false;
   return Boolean(await env.DB.prepare("SELECT 1 FROM sessions WHERE token_hash=? AND expires_at>?")
-    .bind(await digest(value), Date.now()).first());
+    .bind(await sha256Hex(value), Date.now()).first());
 }
 export function requireSameOrigin(request: Request) {
   const expected = new URL(request.url).origin;
@@ -35,7 +41,7 @@ export async function login(env: Env, request: Request) {
     throw new AppError("登录请求过于频繁，请稍后再试。", 429, "LOGIN_RATE_LIMITED");
   }
   const now = Date.now();
-  const key = await digest(clientIp);
+  const key = await sha256Hex(clientIp);
   const attempts = await env.DB.prepare(`INSERT INTO login_attempts(key,count,expires_at) VALUES(?,1,?)
     ON CONFLICT(key) DO UPDATE SET count=CASE WHEN expires_at<=? THEN 1 ELSE count+1 END,
     expires_at=CASE WHEN expires_at<=? THEN excluded.expires_at ELSE expires_at END RETURNING count`)
@@ -46,17 +52,14 @@ export async function login(env: Env, request: Request) {
   const expected = env.ADMIN_TOKEN?.trim();
   const supplied = typeof body.token === "string" ? body.token.trim() : "";
   if (!expected) throw new AppError("管理口令尚未配置。", 503, "ADMIN_TOKEN_MISSING");
-  const left = await digest(supplied), right = await digest(expected);
-  let difference = 0;
-  for (let i = 0; i < left.length; i++) difference |= left.charCodeAt(i) ^ right.charCodeAt(i);
-  if (!supplied || difference) throw new AppError("访问口令无效，请重试。", 401, "INVALID_CREDENTIALS");
+  if (!supplied || !(await constantTimeEqual(supplied, expected))) throw new AppError("访问口令无效，请重试。", 401, "INVALID_CREDENTIALS");
   const value = [...crypto.getRandomValues(new Uint8Array(32))].map(byte => byte.toString(16).padStart(2, "0")).join("");
-  await env.DB.prepare("INSERT INTO sessions(token_hash,expires_at) VALUES(?,?)").bind(await digest(value), now + SEVEN_DAYS * 1000).run();
+  await env.DB.prepare("INSERT INTO sessions(token_hash,expires_at) VALUES(?,?)").bind(await sha256Hex(value), now + SEVEN_DAYS * 1000).run();
   return Response.json({ redirectTo: safeCallbackUrl(body.callbackUrl) }, { headers: { "set-cookie": sessionCookie(value, request), "cache-control": "no-store" } });
 }
 export async function logout(env: Env, request: Request) {
   requireSameOrigin(request);
   const value = token(request);
-  if (value) await env.DB.prepare("DELETE FROM sessions WHERE token_hash=?").bind(await digest(value)).run();
+  if (value) await env.DB.prepare("DELETE FROM sessions WHERE token_hash=?").bind(await sha256Hex(value)).run();
   return Response.json({ ok: true }, { headers: { "set-cookie": sessionCookie("", request, 0), "cache-control": "no-store" } });
 }

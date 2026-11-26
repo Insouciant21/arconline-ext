@@ -25,6 +25,7 @@ import type { DashboardPayload, JobView, StoredUser } from "@/lib/types";
 import { formatJoinDate, formatRelativeDate } from "@/lib/utils";
 import { PLAYER_PROFILE_UPDATED_EVENT, setScoreExportHint } from "@/lib/score-export-client";
 import { VersionCheck } from "@/components/version-check";
+import { BotBindDialog } from "@/components/bot-bind-dialog";
 
 type ActionState = "idle" | "syncing" | "retrying" | "importing";
 type ChartRange = (typeof chartRanges)[number]["label"];
@@ -175,10 +176,13 @@ export function DashboardShell({ initialData }: { initialData: DashboardPayload 
           </div>
         </div>
         <div className="profile-toolbar">
-          <Button className="sync-button" onClick={startSync} disabled={busy} aria-busy={action === "syncing"}>
-            {action === "syncing" ? <Loader2 className="spin" size={16} /> : <CloudDownload size={16} />}
-            {!interactive ? "正在准备…" : action === "syncing" ? isSubmitting ? "正在提交…" : "获取中…" : "获取 B50 & 潜力图"}
-          </Button>
+          <div className="profile-toolbar-actions">
+            <Button className="sync-button" onClick={startSync} disabled={busy} aria-busy={action === "syncing"}>
+              {action === "syncing" ? <Loader2 className="spin" size={16} /> : <CloudDownload size={16} />}
+              {!interactive ? "正在准备…" : action === "syncing" ? isSubmitting ? "正在提交…" : "获取中…" : "获取 B50 & 潜力图"}
+            </Button>
+            <BotBindDialog interactive={interactive} />
+          </div>
           <VersionCheck initialVersion={data.version} interactive={interactive} />
         </div>
       </section>

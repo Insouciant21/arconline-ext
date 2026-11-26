@@ -9,6 +9,7 @@ import { getSongScores } from "./song-scores";
 import { getScoreExportProfile, refreshScoreExportProfile } from "./score-export-profile";
 import { measure, Profiler } from "./profiling";
 import { checkGameVersion } from "./arcaea-version";
+import { getBotB50Payload, getBotBindStatus, getBotProfilePayload, issueBotBindCode, requireBotBridge, verifyBotBindCode } from "./bot-bridge";
 
 export async function api(env: Env, request: Request, background?: Pick<ExecutionContext, "waitUntil">): Promise<Response> {
   try {
@@ -17,12 +18,20 @@ export async function api(env: Env, request: Request, background?: Pick<Executio
     if (path === "/api/auth/logout") { method(request, "POST"); return await logout(env, request); }
     const profiling = request.method === "POST" ? new Profiler() : undefined;
     const submission = { background, profiling };
+    if (path === "/api/bot" || path.startsWith("/api/bot/")) {
+      return await botApi(env, request, path, submission);
+    }
     if (!await measure(profiling, "auth", () => authenticated(env, request))) throw new AppError("需要登录后才能访问。", 401, "AUTH_REQUIRED");
     if (request.method !== "GET" && request.method !== "HEAD") {
       requireSameOrigin(request);
       if (env.MUTATIONS_ENABLED === "false") throw new AppError("维护中，暂时停止同步。", 503, "MAINTENANCE");
     }
     if (path === "/api/auth/session") { method(request, "GET"); return json({ authenticated: true }); }
+    if (path === "/api/bot-bind-codes") {
+      if (request.method === "GET") return json(await getBotBindStatus(env));
+      if (request.method === "POST") return json(await issueBotBindCode(env));
+      throw new AppError("GET, POST", 405, "METHOD_NOT_ALLOWED");
+    }
     if (path === "/api/dashboard") { method(request, "GET"); return json(await getDashboardPayload(env)); }
     if (path === "/api/version") {
       method(request, "GET");
@@ -82,4 +91,38 @@ function method(request: Request, allowed: string) {
 }
 function json(value: unknown, status = 200, profiling?: Profiler) {
   return Response.json(value, { status, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff", ...(profiling ? { "server-timing": profiling.serverTiming() } : {}) } });
+}
+async function botApi(
+  env: Env,
+  request: Request,
+  path: string,
+  submission: { background?: Pick<ExecutionContext, "waitUntil">; profiling?: Profiler },
+): Promise<Response> {
+  await requireBotBridge(env, request);
+  if (path === "/api/bot/bind/verify") {
+    method(request, "POST");
+    return json(await verifyBotBindCode(env, request));
+  }
+  if (path === "/api/bot/profile") {
+    method(request, "GET");
+    return json(await getBotProfilePayload(env));
+  }
+  if (path === "/api/bot/b50") {
+    method(request, "GET");
+    return json(await getBotB50Payload(env));
+  }
+  if (path === "/api/bot/sync") {
+    method(request, "POST");
+    if (env.MUTATIONS_ENABLED === "false") throw new AppError("维护中，暂时停止同步。", 503, "MAINTENANCE");
+    return json(await enqueue(env, "sync", "manual", null, {}, submission), 202, submission.profiling);
+  }
+  const jobMatch = path.match(/^\/api\/bot\/jobs\/([a-f0-9-]+)$/);
+  if (jobMatch) {
+    method(request, "GET");
+    return json(await getJob(env, jobMatch[1]));
+  }
+  if (path.startsWith("/api/bot/media/")) {
+    return await serveMedia(env, request, submission.background, { prefix: "/api/bot/media/", privateCookie: false });
+  }
+  throw new AppError("接口不存在。", 404, "NOT_FOUND");
 }

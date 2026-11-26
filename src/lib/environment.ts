@@ -19,4 +19,5 @@ export interface Env {
   SCHEDULE_TIMEZONE?: string;
   DAILY_SYNC_ENABLED?: string;
   MUTATIONS_ENABLED?: string;
+  BOT_BRIDGE_SECRET?: string;
 }
