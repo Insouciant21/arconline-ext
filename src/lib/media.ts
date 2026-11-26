@@ -25,7 +25,7 @@ export async function serveMedia(
   let key: string;
   try { key = decodeURIComponent(new URL(request.url).pathname.slice(prefix.length)); }
   catch { throw new AppError("无效的媒体路径。", 400, "INVALID_ASSET_KEY"); }
-  if (!key || key.includes("..") || key.startsWith("/") || key.includes("\\") || !/^(charts|characters|potential|banners)\//.test(key))
+  if (!key || key.includes("..") || key.startsWith("/") || key.includes("\\") || !/^(charts|characters|potential|banners|custom)\//.test(key))
     throw new AppError("无效的媒体路径。", 400, "INVALID_ASSET_KEY");
 
   const url = new URL(request.url);

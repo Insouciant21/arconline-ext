@@ -11,6 +11,7 @@ import { cacheScoreExportProfile, prepareScoreExportProfile } from "./score-expo
 import { Store, type CacheWrite } from "./store";
 import type { B50Snapshot, CharacterImageCacheEntry, ChartImageCacheEntry, JobView, StoredUser } from "./types";
 import { measure, type Profiler, type TimingSpan } from "./profiling";
+import { renderAndStoreCustomB50 } from "./b50-poster-renderer";
 
 type MediaItem = { kind: "potential" | "chart" | "character"; key: string; bg?: string; icon?: string; characterId?: number; songId?: string; done?: boolean; cached?: boolean };
 export interface SyncState { snapshotId?: string; media?: MediaItem[]; preview?: B50Snapshot; duplicateOf?: string; historyMessage?: string; historyPending?: boolean; profilePending?: boolean; timings?: TimingSpan[]; }
@@ -78,6 +79,10 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
       snapshot.best50 = snapshot.best50.map(score => ({ ...scores.get(scoreMediaKey(score)), ...score }));
       snapshot.potentialImageKey = previous.potentialImageKey;
       snapshot.potentialImageUrl = previous.potentialImageKey ? publicAssetUrl(env, previous.potentialImageKey) : previous.potentialImageUrl;
+      snapshot.customImageKey = previous.customImageKey;
+      snapshot.customImageUrl = previous.customImageKey ? publicAssetUrl(env, previous.customImageKey) : previous.customImageUrl;
+      snapshot.customImageTheme = previous.customImageTheme;
+      snapshot.customBackgroundId = previous.customBackgroundId;
       snapshot.mediaStatus = previous.mediaStatus || "complete";
       snapshot.mediaError = previous.mediaError;
       state.preview = snapshot; state.duplicateOf = previous.id;
@@ -145,7 +150,27 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
     }
     const failure = results.find(result => result.status === "rejected");
     if (failure?.status === "rejected") throw failure.reason;
-    return { stage: state.media!.some(item => !item.done) ? "media" : "archive", state };
+    return { stage: state.media!.some(item => !item.done) ? "media" : env.ASSETS ? "render" : "archive", state };
+  }
+  if (job.stage === "render") {
+    const snapshot = state.snapshotId ? await loadSnapshot(state.snapshotId) : null;
+    if (!snapshot) throw new AppError("任务快照不存在。", 404, "SNAPSHOT_MISSING");
+    if (env.ASSETS) {
+      try {
+        await measure(profiling, "render.custom_b50", () => renderAndStoreCustomB50(env, store, snapshot));
+        await saveSnapshot(snapshot);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "未知渲染错误";
+        await store.log({
+          scope: "media",
+          level: "warning",
+          action: "custom-b50-render-failed",
+          message: `自定义 B50 图片后台生成失败（保留官方成绩同步）：${message}`,
+          snapshotId: snapshot.id,
+        });
+      }
+    }
+    return { stage: "archive", state };
   }
   if (job.stage === "archive") {
     let snapshot: B50Snapshot | null = null;

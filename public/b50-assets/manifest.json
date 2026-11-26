@@ -1,0 +1,91 @@
+{
+  "width": 1920,
+  "height": 2388,
+  "backgrounds": [
+    {
+      "id": "bg-01",
+      "theme": "dark",
+      "file": "backgrounds/bg-01.webp"
+    },
+    {
+      "id": "bg-02",
+      "theme": "light",
+      "file": "backgrounds/bg-02.webp"
+    },
+    {
+      "id": "bg-03",
+      "theme": "light",
+      "file": "backgrounds/bg-03.webp"
+    },
+    {
+      "id": "bg-04",
+      "theme": "light",
+      "file": "backgrounds/bg-04.webp"
+    },
+    {
+      "id": "bg-05",
+      "theme": "light",
+      "file": "backgrounds/bg-05.webp"
+    },
+    {
+      "id": "bg-06",
+      "theme": "dark",
+      "file": "backgrounds/bg-06.webp"
+    },
+    {
+      "id": "bg-07",
+      "theme": "light",
+      "file": "backgrounds/bg-07.webp"
+    },
+    {
+      "id": "bg-08",
+      "theme": "light",
+      "file": "backgrounds/bg-08.webp"
+    },
+    {
+      "id": "bg-10",
+      "theme": "dark",
+      "file": "backgrounds/bg-10.webp"
+    },
+    {
+      "id": "bg-11",
+      "theme": "light",
+      "file": "backgrounds/bg-11.webp"
+    },
+    {
+      "id": "bg-12",
+      "theme": "dark",
+      "file": "backgrounds/bg-12.webp"
+    },
+    {
+      "id": "bg-13",
+      "theme": "dark",
+      "file": "backgrounds/bg-13.webp"
+    },
+    {
+      "id": "bg-14",
+      "theme": "light",
+      "file": "backgrounds/bg-14.webp"
+    },
+    {
+      "id": "bg-15",
+      "theme": "dark",
+      "file": "backgrounds/bg-15.webp"
+    },
+    {
+      "id": "bg-16",
+      "theme": "dark",
+      "file": "backgrounds/bg-16.webp"
+    },
+    {
+      "id": "bg-17",
+      "theme": "dark",
+      "file": "backgrounds/bg-17.webp"
+    },
+    {
+      "id": "bg-18",
+      "theme": "dark",
+      "file": "backgrounds/bg-18.webp"
+    }
+  ]
+}

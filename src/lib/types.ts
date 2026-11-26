@@ -107,6 +107,10 @@ export interface B50Snapshot {
   best50: Best50Score[];
   potentialImageKey?: string;
   potentialImageUrl?: string;
+  customImageKey?: string;
+  customImageUrl?: string;
+  customImageTheme?: "dark" | "light";
+  customBackgroundId?: string;
   imageStats: ImageStats;
   mediaStatus?: MediaStatus;
   mediaError?: string;

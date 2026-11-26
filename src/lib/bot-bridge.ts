@@ -1,4 +1,6 @@
 import { constantTimeEqual, sha256Hex } from "./auth";
+import { renderAndStoreCustomB50 } from "./b50-poster-renderer";
+import { CHART_CONSTANTS_VERSION } from "./chart-constants";
 import type { Env } from "./environment";
 import { AppError } from "./errors";
 import { computeSnapshotStats } from "./history-view";
@@ -122,20 +124,39 @@ export async function verifyBotBindCode(env: Env, request: Request) {
 /**
  * Return the latest cached B50 snapshot and computed stats for the QQ gateway.
  */
-export async function getBotB50Payload(env: Env) {
-  const latest = await new Store(env).latest();
+export async function getBotB50Payload(
+  env: Env,
+  options: { ensureCustom?: boolean; rerenderCustom?: boolean; backgroundId?: string; requestOrigin?: string } = {},
+) {
+  const store = new Store(env);
+  const latest = await store.latest();
   if (!latest) throw new AppError("尚未同步任何 B50 快照。", 404, "SNAPSHOT_NOT_FOUND");
+
+  if ((options.rerenderCustom || (options.ensureCustom && !latest.customImageKey)) && (env.ASSETS || options.requestOrigin)) {
+    await renderAndStoreCustomB50(env, store, latest, {
+      backgroundId: options.backgroundId,
+      requestOrigin: options.requestOrigin,
+    });
+    await store.writeSnapshot(latest);
+    await store.backup(latest).catch(() => {});
+  }
+
   return {
     snapshotId: latest.id,
     fetchedAt: latest.fetchedAt,
     potential: latest.potential,
     weightedPotential: latest.weightedPotential,
+    constantsVersion: CHART_CONSTANTS_VERSION,
     mediaStatus: latest.mediaStatus ?? "complete",
     potentialImageKey: latest.potentialImageKey ?? null,
+    customImageKey: latest.customImageKey ?? null,
+    customImageTheme: latest.customImageTheme ?? null,
+    customBackgroundId: latest.customBackgroundId ?? null,
     user: {
       name: latest.user.name ?? null,
       userCode: latest.user.userCode ?? null,
       rating: latest.user.rating,
+      avatarImageKey: latest.user.avatarImageKey ?? null,
     },
     stats: computeSnapshotStats(latest),
     best50: latest.best50,

@@ -109,7 +109,21 @@ async function botApi(
   }
   if (path === "/api/bot/b50") {
     method(request, "GET");
-    return json(await getBotB50Payload(env));
+    const reqUrl = new URL(request.url);
+    return json(await getBotB50Payload(env, {
+      ensureCustom: reqUrl.searchParams.get("ensureCustom") === "1",
+      backgroundId: reqUrl.searchParams.get("bg") ?? undefined,
+      requestOrigin: reqUrl.origin,
+    }));
+  }
+  if (path === "/api/bot/b50/rerender") {
+    method(request, "POST");
+    const reqUrl = new URL(request.url);
+    return json(await getBotB50Payload(env, {
+      rerenderCustom: true,
+      backgroundId: reqUrl.searchParams.get("bg") ?? undefined,
+      requestOrigin: reqUrl.origin,
+    }));
   }
   if (path === "/api/bot/sync") {
     method(request, "POST");
