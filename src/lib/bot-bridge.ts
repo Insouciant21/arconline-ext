@@ -137,7 +137,7 @@ export async function getBotB50Payload(
     await renderAndStoreCustomB50(env, latest, {
       backgroundId: options.backgroundId,
     });
-    await store.writeSnapshot(latest);
+    await store.writeSnapshot(latest, [], { invalidateExport: false });
     await store.backup(latest).catch(() => {});
     if (previousCustomKey && previousCustomKey !== latest.customImageKey) {
       await env.ARCHIVE.delete(previousCustomKey).catch(() => {});

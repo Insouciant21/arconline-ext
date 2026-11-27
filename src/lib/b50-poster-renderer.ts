@@ -318,7 +318,7 @@ function decodeAndResizeCoverSquare(photon: PhotonModule, bytes: Uint8Array, siz
     if (w === size && h === size) {
       return { width: size, height: size, pixels: new Uint8Array(image.get_raw_pixels()) };
     }
-    const resized = photon.resize(image, size, size, photon.SamplingFilter.Lanczos3);
+    const resized = photon.resize(image, size, size, photon.SamplingFilter.CatmullRom);
     try {
       return {
         width: resized.get_width(),
@@ -701,99 +701,129 @@ export async function renderB50Poster(
     ),
   );
 
+  const best50 = snapshot.best50.slice(0, 50);
+
+  // Load only the difficulty diamonds actually used in this B50, in parallel.
+  const usedDiffCodes = [...new Set(best50.map((s) => difficultyCode(s.difficulty, s.difficultyAlias)))];
   const diffMap = new Map<string, DecodedRgba>();
-  for (const code of ["PST", "PRS", "FTR", "BYD", "ETR", "INS"]) {
-    const b = await options.loadAsset(`components/diff-${code.toLowerCase()}.png`);
-    if (b) diffMap.set(code, decodeImageBytes(photon, b));
-  }
+  await Promise.all(
+    usedDiffCodes.map(async (code) => {
+      const b = await options.loadAsset(`components/diff-${code.toLowerCase()}.png`);
+      if (b) diffMap.set(code, decodeImageBytes(photon, b));
+    }),
+  );
 
   // Track duplicate song bg keys so we only retain resized 151x151 buffers when reused
   const bgCount = new Map<string, number>();
-  for (const s of snapshot.best50.slice(0, 50)) {
+  for (const s of best50) {
     if (s.imageKey) bgCount.set(s.imageKey, (bgCount.get(s.imageKey) ?? 0) + 1);
   }
   const reusableCovers = new Map<string, DecodedRgba>();
 
-  const best50 = snapshot.best50.slice(0, 50);
+  // 6. Stream cards in 2-row bands: prefetch each row's 5 covers concurrently from R2,
+  //    paste shells/artwork/diamonds, and rasterize text 2 rows per Resvg call (~50% fewer font parses).
+  for (let bandRow = 0; bandRow < 10; bandRow += 2) {
+    const bandItems: Array<{ score: Best50Score; rank: number; x: number; y: number }> = [];
+    for (let row = bandRow; row < Math.min(bandRow + 2, 10); row++) {
+      const rowSlice = best50.slice(row * 5, row * 5 + 5);
+      if (rowSlice.length === 0) break;
 
-  // 6. Stream cards row by row: paste shells, square artwork, diamond badge, and row SVG text layer
-  for (let row = 0; row < 10; row++) {
-    const rowItems: Array<{ score: Best50Score; rank: number; x: number; y: number }> = [];
-    for (let col = 0; col < 5; col++) {
-      const idx = row * 5 + col;
-      if (idx >= best50.length) break;
-      const score = best50[idx];
-      const rank = idx + 1;
-      const pos = cardOrigin(idx);
-      const shell = pos.isB10 ? cardB10Img : cardB40Img;
-
-      blitRgba(canvasPixels, POSTER_WIDTH, POSTER_HEIGHT, shell.pixels, shell.width, shell.height, pos.x, pos.y);
-
-      if (score.imageKey) {
-        let cover = reusableCovers.get(score.imageKey);
-        if (!cover) {
-          try {
-            const chartBytes = await options.loadMedia(score.imageKey);
-            if (chartBytes) {
-              cover = decodeAndResizeCoverSquare(photon, chartBytes, ART_SIZE);
-              if ((bgCount.get(score.imageKey) ?? 0) > 1) {
-                reusableCovers.set(score.imageKey, cover);
-              }
+      const missingKeys = [
+        ...new Set(
+          rowSlice
+            .map((s) => s.imageKey)
+            .filter((k): k is string => typeof k === "string" && k.length > 0 && !reusableCovers.has(k)),
+        ),
+      ];
+      const fetchedRowCovers = new Map<string, Uint8Array | null>(
+        await Promise.all(
+          missingKeys.map(async (key): Promise<[string, Uint8Array | null]> => {
+            try {
+              return [key, await options.loadMedia(key)];
+            } catch {
+              return [key, null];
             }
-          } catch {
-            cover = undefined;
-          }
-        }
-        if (cover) {
-          blitRgba(
-            canvasPixels,
-            POSTER_WIDTH,
-            POSTER_HEIGHT,
-            cover.pixels,
-            cover.width,
-            cover.height,
-            pos.x + ART_OFFSET,
-            pos.y + ART_OFFSET,
-          );
-        }
-      }
-
-      blitRgba(
-        canvasPixels,
-        POSTER_WIDTH,
-        POSTER_HEIGHT,
-        artOverlayImg.pixels,
-        artOverlayImg.width,
-        artOverlayImg.height,
-        pos.x + ART_OFFSET,
-        pos.y + ART_OFFSET,
-        ART_SIZE,
-        ART_SIZE,
+          }),
+        ),
       );
 
-      const diffCode = difficultyCode(score.difficulty, score.difficultyAlias);
-      const diffImg = diffMap.get(diffCode);
-      if (diffImg) {
-        // Inside 78x33 pill at artOverlay (right:5px, bottom:5px)
+      for (let col = 0; col < rowSlice.length; col++) {
+        const idx = row * 5 + col;
+        const score = rowSlice[col];
+        const rank = idx + 1;
+        const pos = cardOrigin(idx);
+        const shell = pos.isB10 ? cardB10Img : cardB40Img;
+
+        blitRgba(canvasPixels, POSTER_WIDTH, POSTER_HEIGHT, shell.pixels, shell.width, shell.height, pos.x, pos.y);
+
+        if (score.imageKey) {
+          let cover = reusableCovers.get(score.imageKey);
+          if (!cover) {
+            const chartBytes = fetchedRowCovers.get(score.imageKey);
+            if (chartBytes) {
+              try {
+                cover = decodeAndResizeCoverSquare(photon, chartBytes, ART_SIZE);
+                if ((bgCount.get(score.imageKey) ?? 0) > 1) {
+                  reusableCovers.set(score.imageKey, cover);
+                }
+              } catch {
+                cover = undefined;
+              }
+            }
+          }
+          if (cover) {
+            blitRgba(
+              canvasPixels,
+              POSTER_WIDTH,
+              POSTER_HEIGHT,
+              cover.pixels,
+              cover.width,
+              cover.height,
+              pos.x + ART_OFFSET,
+              pos.y + ART_OFFSET,
+            );
+          }
+        }
+
         blitRgba(
           canvasPixels,
           POSTER_WIDTH,
           POSTER_HEIGHT,
-          diffImg.pixels,
-          diffImg.width,
-          diffImg.height,
-          pos.x + 120,
-          pos.y + 119,
+          artOverlayImg.pixels,
+          artOverlayImg.width,
+          artOverlayImg.height,
+          pos.x + ART_OFFSET,
+          pos.y + ART_OFFSET,
+          ART_SIZE,
+          ART_SIZE,
         );
-      }
 
-      rowItems.push({ score, rank, x: pos.x, y: pos.y });
+        const diffCode = difficultyCode(score.difficulty, score.difficultyAlias);
+        const diffImg = diffMap.get(diffCode);
+        if (diffImg) {
+          // Inside 78x33 pill at artOverlay (right:5px, bottom:5px)
+          blitRgba(
+            canvasPixels,
+            POSTER_WIDTH,
+            POSTER_HEIGHT,
+            diffImg.pixels,
+            diffImg.width,
+            diffImg.height,
+            pos.x + 120,
+            pos.y + 119,
+          );
+        }
+
+        bandItems.push({ score, rank, x: pos.x, y: pos.y });
+      }
     }
 
-    if (rowItems.length === 0) break;
-    const bandTop = rowItems[0].y;
-    const rowSvg = buildRowBandSvg(rowItems, bandTop, CARD_HEIGHT, theme);
-    const resvg: ResvgType = await resvgMod.Resvg.async(rowSvg, {
+    if (bandItems.length === 0) break;
+    const bandTop = bandItems[0].y;
+    const bandBottom = bandItems[bandItems.length - 1].y + CARD_HEIGHT;
+    const bandHeight = bandBottom - bandTop;
+    const bandSvg = buildRowBandSvg(bandItems, bandTop, bandHeight, theme);
+    const resvg: ResvgType = await resvgMod.Resvg.async(bandSvg, {
       font: { fontBuffers, loadSystemFonts: false, defaultFontFamily: "Noto Sans CJK SC" },
     });
     try {

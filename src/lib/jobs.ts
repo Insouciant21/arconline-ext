@@ -99,6 +99,8 @@ export async function recover(env: Env) {
     store.sql("DELETE FROM sessions WHERE expires_at<?", now),
     store.sql("DELETE FROM login_attempts WHERE expires_at<?", now),
     store.sql("DELETE FROM outbox WHERE job_id IN (SELECT id FROM jobs WHERE status IN ('succeeded','failed'))"),
+    store.sql(`DELETE FROM jobs WHERE status IN ('succeeded','failed') AND created_at<?
+      AND id NOT IN (SELECT id FROM jobs ORDER BY created_at DESC LIMIT 50)`, new Date(now - 30 * 86_400_000).toISOString()),
   ]);
   await dispatch(env);
 }
@@ -164,7 +166,9 @@ export async function consume(env: Env, batch: MessageBatch<JobMessage>) {
         const continuing = !next.result && !execution.shouldYield();
         const status = next.result ? "succeeded" : continuing ? "running" : "queued";
         next.state.timings = profiling.snapshot();
-        const state = JSON.stringify(next.state), result = next.result ? JSON.stringify(next.result) : null;
+        // Once succeeded, drop the duplicated 22 KB preview snapshot from jobs.state (result already holds it).
+        const persistedState = next.result ? { ...next.state, preview: undefined } : next.state;
+        const state = JSON.stringify(persistedState), result = next.result ? JSON.stringify(next.result) : null;
         const [written] = await profiling.measure(`d1.commit.${stage}`, () => env.DB.batch([
           store.sql(`UPDATE jobs SET status=?,stage=?,state=?,result=?,error=NULL,step=step+1,attempts=?,lease_token=?,lease_until=?,updated_at=?
             WHERE id=? AND step=? AND lease_token=? AND status='running'`, status, next.stage, state, result,

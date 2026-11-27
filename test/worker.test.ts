@@ -895,7 +895,7 @@ describe("durable queue pipeline",()=>{
         expect(client.getCharacterIconImage).toHaveBeenCalledOnce();
         expect(client.getPotentialHistory).toHaveBeenCalledOnce();
         expect(client.getOnlineImage).toHaveBeenCalledOnce();
-        expect(client.getChartImage).toHaveBeenCalledTimes(3);
+        expect(client.getChartImage).toHaveBeenCalledTimes(9);
       });
       expect((await getJob(env, job.jobId)).status).toBe("running");
       expect((await store.cache<{ name: string }>("score-export", ["profile"])).profile.name).toBe("Previous user");
@@ -959,14 +959,14 @@ describe("durable queue pipeline",()=>{
     });
     client.getChartImage.mockImplementation(async () => {
       maximum = Math.max(maximum, ++active);
-      try { await Promise.resolve();return { body: new Uint8Array([1]).buffer, contentType: "image/jpeg" }; }
+      try { await new Promise(resolve => setTimeout(resolve, 10));return { body: new Uint8Array([1]).buffer, contentType: "image/jpeg" }; }
       finally { active--; }
     });
     const job = await enqueue(env, "sync"), running = deliver(sent.shift()!);
-    try { await vi.waitFor(() => expect(client.getChartImage.mock.calls.length).toBeGreaterThanOrEqual(3)); }
+    try { await vi.waitFor(() => expect(client.getChartImage.mock.calls.length).toBeGreaterThanOrEqual(9)); }
     finally { release(); }
     await running;
-    expect(maximum).toBe(2);expect(client.getChartImage).toHaveBeenCalledTimes(50);
+    expect(maximum).toBe(5);expect(client.getChartImage).toHaveBeenCalledTimes(50);
     expect((await getJob(env, job.jobId)).status).toBe("succeeded");
   });
   it("does not mark unpersisted uploads done when history finishes during a failed snapshot write", async () => {

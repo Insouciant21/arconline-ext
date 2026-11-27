@@ -6,6 +6,9 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
+  "placement": {
+    "mode": "smart"
+  },
   "assets": {
     "binding": "ASSETS",
     "directory": "./dist"

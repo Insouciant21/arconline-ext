@@ -70,10 +70,7 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
       user: remote.user, best50: remote.best50,
       imageStats: { requested: new Set(remote.best50.map(score => score.bg).filter(Boolean)).size, uploaded: 0, failed: 0, failures: [], cached: 0 }, mediaStatus: "processing",
     };
-    await Promise.all([
-      measure(profiling, "d1.aliases", () => store.aliases(remote.best50)),
-      measure(profiling, "d1.media.cache", () => enrichCached(store, snapshot, previous)),
-    ]);
+    await measure(profiling, "d1.media.cache", () => enrichCached(store, snapshot, previous));
     if (previous && sameB50(previous, snapshot)) {
       const scores = new Map(previous.best50.map(score => [scoreMediaKey(score), score]));
       snapshot.best50 = snapshot.best50.map(score => ({ ...scores.get(scoreMediaKey(score)), ...score }));
@@ -88,12 +85,15 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
       state.preview = snapshot; state.duplicateOf = previous.id;
     } else {
       state.snapshotId = snapshot.id;
-      await saveSnapshot(snapshot);
+      await Promise.all([
+        measure(profiling, "d1.aliases", () => store.aliases(remote.best50)),
+        saveSnapshot(snapshot),
+      ]);
       state.media = mediaItems(snapshot);
       state.historyPending = true;
       state.profilePending = true;
     }
-    await checkpoint(state);
+    // The caller commits this state and the next stage atomically immediately after return.
     await store.log({ scope: "b50", level: state.duplicateOf ? "warning" : "success", action: state.duplicateOf ? "skipped" : "recorded", message: state.duplicateOf ? "B50 未变化，跳过成绩快照并更新导出资料。" : "B50 已保存，继续处理用户资料、历史和媒体。", snapshotId: snapshot.id });
     return { stage: state.preview ? "profile" : "media", state };
   }
@@ -207,14 +207,14 @@ async function processMedia(store: Store, snapshot: B50Snapshot, state: SyncStat
   const items = state.media || (state.media = mediaItems(snapshot));
   // The profile branch owns the avatar download; never request it twice. If it
   // falls back to bundled art, the media branch can still retry that one image.
-  const pending = items.filter(item => !item.done && !(profile && item.kind === "character")).slice(0, 24);
-  // Keep two buffered images in flight. A free slot immediately takes the
-  // next image, so slow potential-image generation cannot stall another slot.
+  const pending = items.filter(item => !item.done && !(profile && item.kind === "character")).slice(0, 52);
+  // Keep up to five buffered images in flight. A free slot immediately takes the
+  // next image, so slow potential-image generation cannot stall chart downloads.
   for (let i = 0; i < pending.length || profile;) {
-    const group = pending.slice(i, i + 4), writes: CacheWrite[] = [];
+    const group = pending.slice(i, i + 10), writes: CacheWrite[] = [];
     i += group.length;
     let cursor = 0, failed = false;
-    const results = await Promise.allSettled(Array.from({ length: Math.min(2, group.length) }, async () => {
+    const results = await Promise.allSettled(Array.from({ length: Math.min(5, group.length) }, async () => {
       while (!failed && cursor < group.length) {
         const item = group[cursor++];
         try {
@@ -238,7 +238,7 @@ async function processMedia(store: Store, snapshot: B50Snapshot, state: SyncStat
           item.done = true; item.cached = true;
           const write = applyMedia(store, snapshot, item);
           if (write) writes.push(write);
-        } else if (pending.length < 24) pending.push(item);
+        } else if (pending.length < 52) pending.push(item);
       }
       writes.push({ kind: "score-export", key: "profile", value: snapshot.user });
     }
@@ -292,6 +292,9 @@ async function enrichCached(store: Store, snapshot: B50Snapshot, previous: B50Sn
   if (snapshot.user.characterIcon && snapshot.user.characterId !== undefined && previous?.user.avatarImageKey && previous.user.characterId === snapshot.user.characterId && previous.user.characterIcon === snapshot.user.characterIcon) {
     snapshot.user.avatarImageKey = previous.user.avatarImageKey;
     snapshot.user.avatarImageUrl = publicAssetUrl(store.env, previous.user.avatarImageKey);
+  }
+  if (snapshot.user.bannerResource && previous?.user.bannerImageKey && previous.user.bannerResource === snapshot.user.bannerResource) {
+    snapshot.user.bannerImageKey = previous.user.bannerImageKey;
   }
   const chartKeys = snapshot.best50.filter(score => !score.imageKey).map(score => score.bg).filter((bg): bg is string => Boolean(bg));
   const characterKey = `${snapshot.user.characterId}:${snapshot.user.characterIcon}`;

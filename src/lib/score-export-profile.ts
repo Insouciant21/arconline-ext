@@ -40,16 +40,19 @@ export async function prepareScoreExportProfile(store: Store, source: StoredUser
     }
   }
   async function cacheBanner() {
-    delete user.bannerImageKey;
-    if (!user.bannerResource || !resourcePattern.test(user.bannerResource)) return;
+    if (!user.bannerResource || !resourcePattern.test(user.bannerResource)) {
+      delete user.bannerImageKey;
+      return;
+    }
     const key = `banners/${user.bannerResource}.png`;
     try {
-      if (!await measure(profiling, "r2.banner.head", () => store.env.ARCHIVE.head(key))) {
+      if (user.bannerImageKey !== key && !await measure(profiling, "r2.banner.head", () => store.env.ARCHIVE.head(key))) {
         const image = await (await getClient()).getBannerImage(user.bannerResource);
         await measure(profiling, "r2.banner.put", () => putAsset(store.env, key, image.body, image.contentType, { kind: "banner" }));
       }
       user.bannerImageKey = key;
     } catch {
+      delete user.bannerImageKey;
       throw new AppError("名片同步失败，请稍后重试。", 502, "EXPORT_BANNER_UNAVAILABLE");
     }
   }

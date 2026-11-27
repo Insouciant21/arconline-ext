@@ -10,16 +10,30 @@ export class Store {
   constructor(readonly env: Env) {}
   sql(query: string, ...values: (string | number | null)[]) { return this.env.DB.prepare(query).bind(...values); }
   async snapshots() {
-    const { results } = await this.sql("SELECT body FROM snapshots ORDER BY fetched_at DESC, id DESC").all<{ body: string }>();
-    return this.enrich(results.map(row => JSON.parse(row.body) as B50Snapshot));
+    const [rows, aliasRows] = await this.env.DB.batch([
+      this.sql("SELECT body FROM snapshots ORDER BY fetched_at DESC, id DESC"),
+      this.sql("SELECT key,body FROM cache WHERE kind='alias'"),
+    ]);
+    const aliases = Object.fromEntries(
+      (aliasRows.results as Array<{ key: string; body: string }>).map(row => [row.key, JSON.parse(row.body) as number]),
+    );
+    return this.enrich((rows.results as Array<{ body: string }>).map(row => JSON.parse(row.body) as B50Snapshot), aliases);
   }
   async snapshot(id: string) {
     const row = await this.sql("SELECT body FROM snapshots WHERE id = ?", id).first<{ body: string }>();
     return row ? JSON.parse(row.body) as B50Snapshot : null;
   }
   async latest() {
-    const row = await this.sql("SELECT body FROM snapshots ORDER BY fetched_at DESC, id DESC LIMIT 1").first<{ body: string }>();
-    return row ? (await this.enrich([JSON.parse(row.body)]))[0] : null;
+    const [rows, aliasRows] = await this.env.DB.batch([
+      this.sql("SELECT body FROM snapshots ORDER BY fetched_at DESC, id DESC LIMIT 1"),
+      this.sql("SELECT key,body FROM cache WHERE kind='alias'"),
+    ]);
+    const row = (rows.results as Array<{ body: string }>)[0];
+    if (!row) return null;
+    const aliases = Object.fromEntries(
+      (aliasRows.results as Array<{ key: string; body: string }>).map(entry => [entry.key, JSON.parse(entry.body) as number]),
+    );
+    return (await this.enrich([JSON.parse(row.body) as B50Snapshot], aliases))[0];
   }
   async snapshotSummaries(): Promise<SnapshotSummary[]> {
     // Summary columns only: the list view must not transfer or parse every
@@ -33,21 +47,26 @@ export class Store {
       .all<{ id: string; fetchedAt: string; potential: number; weightedPotential: number; trigger: B50Snapshot["trigger"]; mediaStatus: B50Snapshot["mediaStatus"]; entries: number }>();
     return results.map(({ mediaStatus, ...summary }) => ({ ...summary, ...(mediaStatus ? { mediaStatus } : {}) }));
   }
-  async enrich(snapshots: B50Snapshot[]) {
-    // Only legacy BYD/INS rows need an alias lookup. Current API responses
-    // already carry it; other difficulties don't use aliases.
-    const keys = [...new Set(snapshots.flatMap(snapshot => snapshot.best50
-      .filter(score => score.difficulty === 3 && score.difficultyAlias == null)
-      .map(score => `${score.songId}:${score.difficulty}`)))];
-    const statements: D1PreparedStatement[] = [];
-    for (let index = 0; index < keys.length; index += 100) {
-      const batch = keys.slice(index, index + 100);
-      statements.push(this.sql(`SELECT key,body FROM cache WHERE kind='alias' AND key IN (${batch.map(() => "?").join(",")})`, ...batch));
-    }
-    const aliases: Record<string, number> = {};
-    if (statements.length) {
-      const batches = await this.env.DB.batch<{ key: string; body: string }>(statements);
-      for (const { results } of batches) for (const row of results) aliases[row.key] = JSON.parse(row.body) as number;
+  async enrich(snapshots: B50Snapshot[], preloadedAliases?: Record<string, number>) {
+    let aliases: Record<string, number>;
+    if (preloadedAliases) {
+      aliases = preloadedAliases;
+    } else {
+      // Only legacy BYD/INS rows need an alias lookup. Current API responses
+      // already carry it; other difficulties don't use aliases.
+      const keys = [...new Set(snapshots.flatMap(snapshot => snapshot.best50
+        .filter(score => score.difficulty === 3 && score.difficultyAlias == null)
+        .map(score => `${score.songId}:${score.difficulty}`)))];
+      const statements: D1PreparedStatement[] = [];
+      for (let index = 0; index < keys.length; index += 100) {
+        const batch = keys.slice(index, index + 100);
+        statements.push(this.sql(`SELECT key,body FROM cache WHERE kind='alias' AND key IN (${batch.map(() => "?").join(",")})`, ...batch));
+      }
+      aliases = {};
+      if (statements.length) {
+        const batches = await this.env.DB.batch<{ key: string; body: string }>(statements);
+        for (const { results } of batches) for (const row of results) aliases[row.key] = JSON.parse(row.body) as number;
+      }
     }
     return snapshots.map(snapshot => ({ ...snapshot,
       ...(snapshot.potentialImageKey ? { potentialImageUrl: publicAssetUrl(this.env, snapshot.potentialImageKey) } : {}),
@@ -59,9 +78,9 @@ export class Store {
       })),
     }));
   }
-  async writeSnapshot(snapshot: B50Snapshot, caches: CacheWrite[] = []) {
+  async writeSnapshot(snapshot: B50Snapshot, caches: CacheWrite[] = [], options: { invalidateExport?: boolean } = {}) {
     const date = getLocalDate(snapshot.fetchedAt, getConfig(this.env).timezone);
-    await this.env.DB.batch([
+    const statements: D1PreparedStatement[] = [
       ...this.cacheStatements(caches),
       this.sql(`INSERT INTO snapshots(id,fetched_at,local_date,potential,fingerprint,body) VALUES(?,?,?,?,?,?)
         ON CONFLICT(id) DO UPDATE SET fetched_at=excluded.fetched_at,local_date=excluded.local_date,
@@ -70,8 +89,11 @@ export class Store {
       this.sql(`INSERT INTO ptt_points(id,local_date,fetched_at,potential,snapshot_id) VALUES(?,?,?,?,?)
         ON CONFLICT(id) DO UPDATE SET local_date=excluded.local_date,fetched_at=excluded.fetched_at,potential=excluded.potential`,
         `snapshot:${snapshot.id}`, date, snapshot.fetchedAt, snapshot.potential, snapshot.id),
-      this.sql("DELETE FROM cache WHERE kind='export' AND key='fingerprint'"),
-    ]);
+    ];
+    if (options.invalidateExport !== false) {
+      statements.push(this.sql("DELETE FROM cache WHERE kind='export' AND key IN ('fingerprint','snapshots','history')"));
+    }
+    await this.env.DB.batch(statements);
   }
   async backup(snapshot: B50Snapshot) {
     await putSnapshot(this.env, snapshot);
@@ -98,7 +120,7 @@ export class Store {
         return this.sql(`INSERT INTO ptt_points(id,local_date,fetched_at,potential,snapshot_id,source) VALUES(?,?,?,?,?,'lowiro')
           ON CONFLICT(id) DO UPDATE SET potential=excluded.potential`, id,
           getLocalDate(point.fetchedAt, timezone), point.fetchedAt, point.potential, "");
-      }), this.sql("DELETE FROM cache WHERE kind='export' AND key='fingerprint'")]);
+      }), this.sql("DELETE FROM cache WHERE kind='export' AND key IN ('fingerprint','history')")]);
     }
     return { received: points.length, total: existing.size + [...incoming.keys()].filter(id => !existing.has(id)).length };
   }
@@ -146,33 +168,45 @@ export class Store {
     return results.map(row => JSON.parse(row.body) as LogEntry);
   }
   async exportArchive() {
-    // Counts detect new rows; writes also invalidate the fingerprint when an
-    // existing snapshot or official PTT point changes in place.
-    // Read both counts and the previous fingerprint in one D1 round trip and
-    // one SQLite snapshot. Existing-row changes still invalidate this cache.
+    // Track snapshot and PTT-history fingerprints independently so an official
+    // PTT point update never forces a full O(N) re-read/re-upload of all B50 snapshots.
     const counts = await this.sql(`WITH snapshot_counts AS (
       SELECT COUNT(*) AS n, COALESCE(MAX(rowid),0) AS m FROM snapshots
     ), point_counts AS (
       SELECT COUNT(*) AS n, COALESCE(MAX(rowid),0) AS m FROM ptt_points
-    ) SELECT s.n||':'||s.m||':'||p.n||':'||p.m AS fingerprint,
-      (SELECT body FROM cache WHERE kind='export' AND key='fingerprint') AS cached
-      FROM snapshot_counts s CROSS JOIN point_counts p`).first<{ fingerprint: string; cached: string | null }>();
-    const fingerprint = counts!.fingerprint;
-    if (counts?.cached === JSON.stringify(fingerprint)) return;
-    const [snapshotsToExport, history] = await Promise.all([this.snapshots(), this.history()]);
-    const all = snapshotsToExport.reverse();
-    const files: Record<string, string> = {
-      "b50-history.json": JSON.stringify(all, null, 2),
-      "ptt-history.json": JSON.stringify(history, null, 2),
-      "b50-history.csv": buildB50HistoryCsv(all),
-      "ptt-history.csv": buildPttHistoryCsv(history),
-    };
+    ) SELECT s.n||':'||s.m AS snapshotsFp, p.n||':'||p.m AS historyFp,
+      (SELECT body FROM cache WHERE kind='export' AND key='snapshots') AS cachedSnapshots,
+      (SELECT body FROM cache WHERE kind='export' AND key='history') AS cachedHistory
+      FROM snapshot_counts s CROSS JOIN point_counts p`).first<{
+        snapshotsFp: string; historyFp: string; cachedSnapshots: string | null; cachedHistory: string | null;
+      }>();
+    const needSnapshots = counts?.cachedSnapshots !== JSON.stringify(counts!.snapshotsFp);
+    const needHistory = counts?.cachedHistory !== JSON.stringify(counts!.historyFp);
+    if (!needSnapshots && !needHistory) return;
+
+    const [snapshotsToExport, history] = await Promise.all([
+      needSnapshots ? this.snapshots() : Promise.resolve(null),
+      needHistory ? this.history() : Promise.resolve(null),
+    ]);
+    const files: Record<string, string> = {};
+    if (snapshotsToExport) {
+      const all = snapshotsToExport.reverse();
+      files["b50-history.json"] = JSON.stringify(all, null, 2);
+      files["b50-history.csv"] = buildB50HistoryCsv(all);
+    }
+    if (history) {
+      files["ptt-history.json"] = JSON.stringify(history, null, 2);
+      files["ptt-history.csv"] = buildPttHistoryCsv(history);
+    }
     const writes = await Promise.allSettled(Object.entries(files).map(([name, body]) => this.env.ARCHIVE.put(`exports/${name}`, body + "\n", {
       httpMetadata: { contentType: name.endsWith("csv") ? "text/csv; charset=utf-8" : "application/json; charset=utf-8", cacheControl: "no-cache" },
     })));
     const failure = writes.find(write => write.status === "rejected");
     if (failure?.status === "rejected") throw failure.reason;
-    await this.putCache("export", "fingerprint", fingerprint);
+    const cacheUpdates: CacheWrite[] = [];
+    if (needSnapshots) cacheUpdates.push({ kind: "export", key: "snapshots", value: counts!.snapshotsFp });
+    if (needHistory) cacheUpdates.push({ kind: "export", key: "history", value: counts!.historyFp });
+    await this.putCaches(cacheUpdates);
   }
 }
 function csv(value: string | number) { const text = String(value); return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; }
