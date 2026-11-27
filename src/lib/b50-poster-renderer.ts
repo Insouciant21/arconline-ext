@@ -4,7 +4,6 @@ import type { Env } from "./environment";
 import { publicAssetUrl, putAsset } from "./r2";
 import type { Store } from "./store";
 import type { Best50Score, B50Snapshot } from "./types";
-import { CHART_CONSTANTS_VERSION } from "./chart-constants";
 import { computeSnapshotStats } from "./history-view";
 import {
   chartConstantFromScore,
@@ -64,8 +63,6 @@ export interface PosterRenderOptions {
   backgroundId?: string;
   /** Optional random number generator in [0, 1). */
   random?: () => number;
-  /** Optional chart constants version label. */
-  constantsVersion?: string;
 }
 
 export interface RenderedPosterResult {
@@ -439,7 +436,6 @@ const OVERFLOW_LABEL_HEIGHT = 34;
 function buildHeaderBandSvg(
   snapshot: B50Snapshot,
   theme: PosterTheme,
-  constantsVersion: string,
 ): string {
   const p = PALETTES[theme];
   const stats = computeSnapshotStats(snapshot);
@@ -460,7 +456,7 @@ function buildHeaderBandSvg(
       <text x="533" y="57" text-anchor="middle" ${fontText} font-size="13.5" font-weight="600" letter-spacing="2" fill="${p.badgeText}">BEST 50 OVERVIEW</text>
       <text x="442" y="88" ${fontText} font-size="13.5" letter-spacing="0.6" fill="${p.tagline}">Two young girls explore a shattered world—filled with sound: a past to be uncovered</text>
       <text x="442" y="116" ${fontNum} font-size="14.5" letter-spacing="0.9" fill="${p.muted}">
-        <tspan fill="${p.exactPtt}" font-weight="700">SYNCED</tspan> ${escapeXml(syncedText)}   ·   <tspan fill="${p.exactPtt}" font-weight="700">CONSTANTS</tspan> v${escapeXml(constantsVersion)}
+        <tspan fill="${p.exactPtt}" font-weight="700">SYNCED</tspan> ${escapeXml(syncedText)}
       </text>
     </g>
 
@@ -682,7 +678,7 @@ export async function renderB50Poster(
 
   // 4. Composite Header and Overflow label SVG bands cleanly (<= 2 MB each)
   const bandSpecs: Array<{ svg: string; top: number }> = [
-    { svg: buildHeaderBandSvg(snapshot, theme, options.constantsVersion || CHART_CONSTANTS_VERSION), top: 0 },
+    { svg: buildHeaderBandSvg(snapshot, theme), top: 0 },
     { svg: buildOverflowLabelSvg(theme), top: OVERFLOW_LABEL_TOP },
   ];
   for (const band of bandSpecs) {
@@ -876,7 +872,6 @@ export async function renderAndStoreCustomB50(
     },
     backgroundId: options.backgroundId,
     random: options.random,
-    constantsVersion: CHART_CONSTANTS_VERSION,
   });
 
   const tag = crypto.randomUUID().slice(0, 6);
