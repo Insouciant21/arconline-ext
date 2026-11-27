@@ -139,9 +139,12 @@ GitHub Actions 在推送 `main` 或提交目标为 `main` 的 PR 时，通过 `j
 
 Cloudflare 自动上线使用 Workers Builds：在 Worker → Settings → Builds 中连接自己的 GitHub 仓库，生产分支选择 `main`，根目录为 `/`，构建命令为 `pnpm run ci:build`，部署命令为 `pnpm run ci:deploy`。部署阶段会按所选配置重新构建，避免误用其他目标的旧产物，然后更新 D1 数据库结构并发布。数据库结构更新必须兼容部署前仍在运行的版本。
 
-如果仓库保留通用模板，而实际生产配置未入库，需要在 Workers Builds 的**构建环境加密变量**中设置 `ARCAEA_CONFIG_JSON`，值为完整私有配置的 JSON 内容。工具会将其写入已忽略的 `wrangler.production.jsonc` 并选择该文件，供构建与部署共同使用。不要把此变量设置为 Worker 运行时 Secret，也不要同时设置 `ARCAEA_CONFIG`。普通 GitHub Actions 检查继续使用通用模板。
+仓库根目录的 `wrangler.jsonc` 默认采用 Cloudflare 官方推荐的模板配置模式：
+- **自动资源绑定（Automatic Resource Provisioning）**：省略 `account_id` 与 `database_id`，按 `database_name`（`arconline-ext`）与 R2 / Queue 名称自动关联或创建当前账号下的资源；
+- **控制台托管域名与运行时变量**：`wrangler.jsonc` 不声明 `routes`，并启用 `"keep_vars": true`（不写死 `vars`）。自定义域名在 Cloudflare 控制台 `Settings → Domains & Routes` 中绑定，运行时开关（如 `DAILY_SYNC_ENABLED=true`、`SCHEDULE_TIMEZONE=Asia/Shanghai`、`MUTATIONS_ENABLED=true`、`R2_PUBLIC_URL`）与敏感密钥（`ADMIN_TOKEN`、`USERNAME`、`PASSWD`、`BOT_BRIDGE_SECRET`）均在控制台 `Settings → Variables and Secrets` 中维护，部署不会覆盖它们；
+- **通用架构配置入库**：`placement`（`aws:ap-east-1`）、`queues`、`crons`、`ratelimits` 等统一由仓库 `wrangler.jsonc` 管理，无需在构建环境变量中额外维护 `ARCAEA_CONFIG_JSON`。
 
-如果部署的是按钮生成、已写入自己资源绑定的仓库，则直接使用其 `wrangler.jsonc` 即可，无需上述私有配置变量。Cloudflare Builds 保留平台原生的 pnpm 构建入口，使用 `.node-version` 指定的 Node.js 和 `package.json` 的 `packageManager` 指定的 pnpm，与本地 mise 共用版本声明。生产口令保留在 Worker Secrets。
+如果仍需为特定环境使用独立整份私有配置，可在本地使用 `wrangler.production.jsonc` + `pnpm run deploy:production`，或在 Workers Builds 构建环境变量中设置 `ARCAEA_CONFIG_JSON`（不要同时设置 `ARCAEA_CONFIG`，注意该方式会完全替代仓库的 `wrangler.jsonc`）。普通 GitHub Actions 检查继续使用仓库的 `wrangler.jsonc`。
 
 ## API
 

@@ -23,12 +23,15 @@ test('CI config is explicitly materialized and conflicting selectors fail', t =>
   assert.throws(() => configPath({ ARCAEA_CONFIG: file, ARCAEA_CONFIG_JSON: '{}' }, root), /only one/);
 });
 
-test('deployment requires a provisioned D1 database', () => {
-  for (const config of [{}, { d1_databases: [] }, { d1_databases: [{ binding: 'DB', database_id: '00000000-0000-0000-0000-000000000000' }] }]) {
+test('deployment requires a valid D1 binding (auto-provisioned name or explicit id)', () => {
+  for (const config of [{}, { d1_databases: [] }, { d1_databases: [{ binding: 'DB', database_id: '00000000-0000-0000-0000-000000000000' }] }, { d1_databases: [{ binding: 'DB' }] }]) {
     assert.throws(() => requireDatabase(config), /Provision D1/);
   }
   assert.equal(requireDatabase({ d1_databases: [
     { binding: 'OTHER', database_id: 'other' },
     { binding: 'DB', database_id: 'selected' },
   ] }), 'selected');
+  assert.equal(requireDatabase({ d1_databases: [
+    { binding: 'DB', database_name: 'arconline-ext' },
+  ] }), 'arconline-ext');
 });

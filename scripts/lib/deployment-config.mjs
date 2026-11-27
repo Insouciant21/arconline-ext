@@ -25,9 +25,11 @@ export function readConfig(file = configPath()) {
 }
 
 export function requireDatabase(config) {
-  const database = config.d1_databases?.find(item => item.binding === 'DB')?.database_id;
-  if (!database || database.startsWith('00000000')) {
-    throw new Error('Provision D1 first and set the DB database_id in the selected Wrangler config. See README.md.');
+  const entry = config.d1_databases?.find(item => item.binding === 'DB');
+  const id = entry?.database_id?.trim();
+  const name = entry?.database_name?.trim();
+  if (!entry || (id && id.startsWith('00000000')) || (!id && !name)) {
+    throw new Error('Provision D1 first and configure DB (database_name or database_id) in the selected Wrangler config. See README.md.');
   }
-  return database;
+  return id || name;
 }
