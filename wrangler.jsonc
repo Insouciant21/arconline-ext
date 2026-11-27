@@ -7,7 +7,7 @@
     "nodejs_compat"
   ],
   "placement": {
-    "mode": "smart"
+    "region": "aws:ap-east-1"
   },
   "assets": {
     "binding": "ASSETS",

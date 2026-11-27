@@ -107,6 +107,10 @@ export class Store {
     return results.map(({ date, potential, snapshotId, fetchedAt, source }) => ({ date, potential, snapshotId, fetchedAt, ...(source === "lowiro" ? { source } : {}) }));
   }
   async mergeOfficial(points: Array<{ timePlayed: number; potential: number }>) {
+    const { received, total } = await this.mergeOfficialWithStats(points);
+    return { received, total };
+  }
+  async mergeOfficialWithStats(points: Array<{ timePlayed: number; potential: number }>) {
     const { results } = await this.sql("SELECT id,potential FROM ptt_points WHERE source='lowiro'").all<{ id: string; potential: number }>();
     const existing = new Map(results.map(point => [point.id, point.potential]));
     const incoming = new Map(points.map(point => {
@@ -122,7 +126,7 @@ export class Store {
           getLocalDate(point.fetchedAt, timezone), point.fetchedAt, point.potential, "");
       }), this.sql("DELETE FROM cache WHERE kind='export' AND key IN ('fingerprint','history')")]);
     }
-    return { received: points.length, total: existing.size + [...incoming.keys()].filter(id => !existing.has(id)).length };
+    return { received: points.length, total: existing.size + [...incoming.keys()].filter(id => !existing.has(id)).length, changed: changed.length };
   }
   async cache<T>(kind: string, keys?: string[]) {
     let results: Array<{ key: string; body: string }>;

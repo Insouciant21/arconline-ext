@@ -109,12 +109,23 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
     if (results[0].status === "rejected") throw results[0].reason;
     if (results[1].status === "rejected") throw results[1].reason;
     snapshot.user = results[0].value;
-    if (state.preview) state.preview = snapshot;
-    else await saveSnapshot(snapshot);
-    // The caller commits this state and the next stage atomically. An additional
-    // checkpoint here would write the same complete B50 twice in succession.
-    if (state.preview) state.historyPending = false;
-    return { stage: state.preview ? "archive" : "media", state };
+    if (state.preview) {
+      state.preview = snapshot;
+      state.historyPending = false;
+      await measure(profiling, "archive.export", () => store.exportArchive());
+      return {
+        stage: "done",
+        state,
+        result: {
+          snapshot: state.preview,
+          recorded: false,
+          duplicateOf: state.duplicateOf,
+          message: "B50 未变化，已更新用户资料，未新增成绩快照。",
+        },
+      };
+    }
+    await saveSnapshot(snapshot);
+    return { stage: "media", state };
   }
   if (job.stage === "history") {
     // History failure must not discard a successfully fetched B50.

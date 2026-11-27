@@ -422,11 +422,7 @@ function cardOrigin(index: number): { x: number; y: number; isB10: boolean } {
   return { x, y: B40_TOP + (row - 2) * (CARD_HEIGHT + ROW_GAP), isB10: false };
 }
 
-const HEADER_BAND_HEIGHT = 270;
-const OVERFLOW_LABEL_TOP = 656;
-const OVERFLOW_LABEL_HEIGHT = 34;
-
-function buildHeaderBandSvg(
+function buildHeaderSvgFragment(
   snapshot: B50Snapshot,
   theme: PosterTheme,
 ): string {
@@ -443,8 +439,7 @@ function buildHeaderBandSvg(
   const fontText = `font-family="Noto Sans CJK SC, L2, Open Sans, Exo, sans-serif"`;
   const nameStartX = 720;
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${POSTER_WIDTH}" height="${HEADER_BAND_HEIGHT}">
-    <g>
+  return `<g>
       <rect x="442" y="38" width="182" height="28" fill="${p.badgeBg}" stroke="${p.badgeBorder}" stroke-width="1"/>
       <text x="533" y="57" text-anchor="middle" ${fontText} font-size="13.5" font-weight="600" letter-spacing="2" fill="${p.badgeText}">BEST 50 OVERVIEW</text>
       <text x="442" y="88" ${fontText} font-size="13.5" letter-spacing="0.6" fill="${p.tagline}">Two young girls explore a shattered world—filled with sound: a past to be uncovered</text>
@@ -477,15 +472,7 @@ function buildHeaderBandSvg(
     </g>
 
     <text x="54" y="258" ${fontNum} font-size="16" font-weight="700" letter-spacing="2" fill="${p.sectionB10}">BEST 10 · #01 – #10</text>
-  </svg>`;
-}
-
-function buildOverflowLabelSvg(theme: PosterTheme): string {
-  const p = PALETTES[theme];
-  const fontNum = `font-family="Exo, Noto Sans CJK SC, sans-serif"`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${POSTER_WIDTH}" height="${OVERFLOW_LABEL_HEIGHT}">
-    <text x="54" y="${677 - OVERFLOW_LABEL_TOP}" ${fontNum} font-size="16" font-weight="700" letter-spacing="2" fill="${p.sectionB40}">OVERFLOW 40 · #11 – #50</text>
-  </svg>`;
+    <text x="54" y="677" ${fontNum} font-size="16" font-weight="700" letter-spacing="2" fill="${p.sectionB40}">OVERFLOW 40 · #11 – #50</text>`;
 }
 
 function buildRowBandSvg(
@@ -493,6 +480,7 @@ function buildRowBandSvg(
   bandTopY: number,
   bandHeight: number,
   theme: PosterTheme,
+  extraFragment = "",
 ): string {
   const p = PALETTES[theme];
   const fontNum = `font-family="Exo, Noto Sans CJK SC, sans-serif"`;
@@ -586,6 +574,7 @@ function buildRowBandSvg(
         <stop offset="100%" stop-color="${p.gradeLow[1]}"/>
       </linearGradient>
     </defs>
+    ${extraFragment}
     ${itemsSvg.join("")}
   </svg>`;
 }
@@ -613,105 +602,9 @@ export async function renderB50Poster(
   if (!chosen) throw new Error("No background entry found in b50-assets/manifest.json");
   const theme = chosen.theme;
 
-  // 1. Load & decode selected background onto master canvas buffer (1920x2388x4)
-  const bgBytes = await options.loadAsset(chosen.file);
-  if (!bgBytes) throw new Error(`Missing background asset: ${chosen.file}`);
-  const bg = decodeImageBytes(photon, bgBytes);
-  const canvasPixels = bg.pixels;
-
-  // 2. Load fonts for Resvg text overlays (~1.06 MB total)
-  const fontPaths = [
-    "fonts/result-text.woff2",
-    "fonts/result-text-semibold.woff2",
-    "fonts/result-cjk.woff2",
-    "fonts/result-number.woff2",
-  ];
-  const fontBuffers = (
-    await Promise.all(fontPaths.map((fp) => options.loadAsset(fp)))
-  ).filter((b): b is Uint8Array => Boolean(b));
-
-  // 3. Composite header components & release immediately
-  const pttTier = potentialTier(snapshot.potential);
-  const headerAssetList = [
-    `components/title-${theme}.png`,
-    `components/header-bar-${theme}.png`,
-    `components/stat-pill-${theme}-accent.png`,
-    `components/stat-pill-${theme}.png`,
-    `components/avatar-frame.png`,
-    `components/ptt-${pttTier}.png`,
-  ];
-  const [titleImg, headerBarImg, statAccentImg, statNormalImg, avatarFrameImg, pttBadgeImg] =
-    await Promise.all(
-      headerAssetList.map(async (rel) => {
-        const b = await options.loadAsset(rel);
-        if (!b) throw new Error(`Missing component asset: ${rel}`);
-        return decodeImageBytes(photon, b);
-      }),
-    );
-
-  blitRgba(canvasPixels, POSTER_WIDTH, POSTER_HEIGHT, titleImg.pixels, titleImg.width, titleImg.height, 34, 14);
-  blitRgba(canvasPixels, POSTER_WIDTH, POSTER_HEIGHT, statAccentImg.pixels, statAccentImg.width, statAccentImg.height, 1500, 42);
-  blitRgba(canvasPixels, POSTER_WIDTH, POSTER_HEIGHT, statNormalImg.pixels, statNormalImg.width, statNormalImg.height, 1699, 42);
-  blitRgba(canvasPixels, POSTER_WIDTH, POSTER_HEIGHT, headerBarImg.pixels, headerBarImg.width, headerBarImg.height, 37, 138);
-
-  // Player avatar (diamond clipped inside avatar-frame at x=604, y=146)
-  if (snapshot.user.avatarImageKey) {
-    try {
-      const avatarBytes = await options.loadMedia(snapshot.user.avatarImageKey);
-      if (avatarBytes) {
-        const avatarSq = decodeAndResizeCoverSquare(photon, avatarBytes, 78);
-        blitDiamondClipped(canvasPixels, POSTER_WIDTH, POSTER_HEIGHT, avatarSq.pixels, 78, 611, 153);
-      }
-    } catch {
-      // Non-fatal fallback if avatar asset is missing or invalid
-    }
-  }
-  blitRgba(canvasPixels, POSTER_WIDTH, POSTER_HEIGHT, avatarFrameImg.pixels, avatarFrameImg.width, avatarFrameImg.height, 604, 146);
-  blitRgba(canvasPixels, POSTER_WIDTH, POSTER_HEIGHT, pttBadgeImg.pixels, pttBadgeImg.width, pttBadgeImg.height, 1052, 141);
-
-  // 4. Composite Header and Overflow label SVG bands cleanly (<= 2 MB each)
-  const bandSpecs: Array<{ svg: string; top: number }> = [
-    { svg: buildHeaderBandSvg(snapshot, theme), top: 0 },
-    { svg: buildOverflowLabelSvg(theme), top: OVERFLOW_LABEL_TOP },
-  ];
-  for (const band of bandSpecs) {
-    const resvg: ResvgType = await resvgMod.Resvg.async(band.svg, {
-      font: { fontBuffers, loadSystemFonts: false, defaultFontFamily: "Noto Sans CJK SC" },
-    });
-    try {
-      const rendered = resvg.render();
-      try {
-        blitRgba(canvasPixels, POSTER_WIDTH, POSTER_HEIGHT, rendered.pixels, rendered.width, rendered.height, 0, band.top);
-      } finally {
-        rendered.free();
-      }
-    } finally {
-      resvg.free();
-    }
-  }
-
-  // 5. Load shared card shell components & difficulty diamonds
-  const [cardB10Img, cardB40Img, artOverlayImg] = await Promise.all(
-    [`components/card-b10-${theme}.png`, `components/card-b40-${theme}.png`, "components/art-overlay.png"].map(
-      async (rel) => {
-        const b = await options.loadAsset(rel);
-        if (!b) throw new Error(`Missing component asset: ${rel}`);
-        return decodeImageBytes(photon, b);
-      },
-    ),
-  );
-
   const best50 = snapshot.best50.slice(0, 50);
-
-  // Load only the difficulty diamonds actually used in this B50, in parallel.
+  const pttTier = potentialTier(snapshot.potential);
   const usedDiffCodes = [...new Set(best50.map((s) => difficultyCode(s.difficulty, s.difficultyAlias)))];
-  const diffMap = new Map<string, DecodedRgba>();
-  await Promise.all(
-    usedDiffCodes.map(async (code) => {
-      const b = await options.loadAsset(`components/diff-${code.toLowerCase()}.png`);
-      if (b) diffMap.set(code, decodeImageBytes(photon, b));
-    }),
-  );
 
   // Track duplicate song bg keys so we only retain resized 151x151 buffers when reused
   const bgCount = new Map<string, number>();
@@ -720,32 +613,120 @@ export async function renderB50Poster(
   }
   const reusableCovers = new Map<string, DecodedRgba>();
 
-  // 6. Stream cards in 2-row bands: prefetch each row's 5 covers concurrently from R2,
-  //    paste shells/artwork/diamonds, and rasterize text 2 rows per Resvg call (~50% fewer font parses).
-  for (let bandRow = 0; bandRow < 10; bandRow += 2) {
+  const prefetchRowCovers = async (row: number): Promise<Map<string, Uint8Array | null>> => {
+    const rowSlice = best50.slice(row * 5, row * 5 + 5);
+    const missingKeys = [
+      ...new Set(
+        rowSlice
+          .map((s) => s.imageKey)
+          .filter((k): k is string => typeof k === "string" && k.length > 0 && !reusableCovers.has(k)),
+      ),
+    ];
+    if (missingKeys.length === 0) return new Map();
+    const entries = await Promise.all(
+      missingKeys.map(async (key): Promise<[string, Uint8Array | null]> => {
+        try {
+          return [key, await options.loadMedia(key)];
+        } catch {
+          return [key, null];
+        }
+      }),
+    );
+    return new Map(entries);
+  };
+
+  // 1-3. Fetch background, fonts, header/card components, avatar, difficulty diamonds, and row 0 covers in parallel.
+  const fontPaths = [
+    "fonts/result-text.woff2",
+    "fonts/result-text-semibold.woff2",
+    "fonts/result-cjk.woff2",
+    "fonts/result-number.woff2",
+  ];
+  const headerAssetList = [
+    `components/title-${theme}.png`,
+    `components/header-bar-${theme}.png`,
+    `components/stat-pill-${theme}-accent.png`,
+    `components/stat-pill-${theme}.png`,
+    `components/avatar-frame.png`,
+    `components/ptt-${pttTier}.png`,
+  ];
+  const cardAssetList = [
+    `components/card-b10-${theme}.png`,
+    `components/card-b40-${theme}.png`,
+    "components/art-overlay.png",
+  ];
+
+  let nextRowPromise = prefetchRowCovers(0);
+  const [bgBytes, rawFonts, headerBytesList, cardBytesList, diffEntries, avatarBytes] = await Promise.all([
+    options.loadAsset(chosen.file),
+    Promise.all(fontPaths.map((fp) => options.loadAsset(fp))),
+    Promise.all(headerAssetList.map((rel) => options.loadAsset(rel))),
+    Promise.all(cardAssetList.map((rel) => options.loadAsset(rel))),
+    Promise.all(
+      usedDiffCodes.map(async (code): Promise<[string, Uint8Array | null]> => [
+        code,
+        await options.loadAsset(`components/diff-${code.toLowerCase()}.png`),
+      ]),
+    ),
+    snapshot.user.avatarImageKey
+      ? options.loadMedia(snapshot.user.avatarImageKey).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  if (!bgBytes) throw new Error(`Missing background asset: ${chosen.file}`);
+  const bg = decodeImageBytes(photon, bgBytes);
+  const canvasPixels = bg.pixels;
+  const fontBuffers = rawFonts.filter((b): b is Uint8Array => Boolean(b));
+
+  const [titleImg, headerBarImg, statAccentImg, statNormalImg, avatarFrameImg, pttBadgeImg] =
+    headerBytesList.map((b, i) => {
+      if (!b) throw new Error(`Missing component asset: ${headerAssetList[i]}`);
+      return decodeImageBytes(photon, b);
+    });
+
+  blitRgba(canvasPixels, POSTER_WIDTH, POSTER_HEIGHT, titleImg.pixels, titleImg.width, titleImg.height, 34, 14);
+  blitRgba(canvasPixels, POSTER_WIDTH, POSTER_HEIGHT, statAccentImg.pixels, statAccentImg.width, statAccentImg.height, 1500, 42);
+  blitRgba(canvasPixels, POSTER_WIDTH, POSTER_HEIGHT, statNormalImg.pixels, statNormalImg.width, statNormalImg.height, 1699, 42);
+  blitRgba(canvasPixels, POSTER_WIDTH, POSTER_HEIGHT, headerBarImg.pixels, headerBarImg.width, headerBarImg.height, 37, 138);
+
+  if (avatarBytes) {
+    try {
+      const avatarSq = decodeAndResizeCoverSquare(photon, avatarBytes, 78);
+      blitDiamondClipped(canvasPixels, POSTER_WIDTH, POSTER_HEIGHT, avatarSq.pixels, 78, 611, 153);
+    } catch {
+      // Non-fatal fallback if avatar asset is invalid
+    }
+  }
+  blitRgba(canvasPixels, POSTER_WIDTH, POSTER_HEIGHT, avatarFrameImg.pixels, avatarFrameImg.width, avatarFrameImg.height, 604, 146);
+  blitRgba(canvasPixels, POSTER_WIDTH, POSTER_HEIGHT, pttBadgeImg.pixels, pttBadgeImg.width, pttBadgeImg.height, 1052, 141);
+
+  const [cardB10Img, cardB40Img, artOverlayImg] = cardBytesList.map((b, i) => {
+    if (!b) throw new Error(`Missing component asset: ${cardAssetList[i]}`);
+    return decodeImageBytes(photon, b);
+  });
+  const diffMap = new Map<string, DecodedRgba>();
+  for (const [code, b] of diffEntries) {
+    if (b) diffMap.set(code, decodeImageBytes(photon, b));
+  }
+
+  // 4. Stream cards in 3 large Resvg bands (Header+B10+Overflow, B40 rows 2-5, B40 rows 6-9)
+  //    while pipelining row N+1 R2 cover fetches behind row N WASM decoding/blitting.
+  const bands: Array<{ startRow: number; endRow: number; includeHeader: boolean }> = [
+    { startRow: 0, endRow: 2, includeHeader: true },
+    { startRow: 2, endRow: 6, includeHeader: false },
+    { startRow: 6, endRow: 10, includeHeader: false },
+  ];
+
+  for (const band of bands) {
     const bandItems: Array<{ score: Best50Score; rank: number; x: number; y: number }> = [];
-    for (let row = bandRow; row < Math.min(bandRow + 2, 10); row++) {
+    for (let row = band.startRow; row < band.endRow; row++) {
       const rowSlice = best50.slice(row * 5, row * 5 + 5);
       if (rowSlice.length === 0) break;
 
-      const missingKeys = [
-        ...new Set(
-          rowSlice
-            .map((s) => s.imageKey)
-            .filter((k): k is string => typeof k === "string" && k.length > 0 && !reusableCovers.has(k)),
-        ),
-      ];
-      const fetchedRowCovers = new Map<string, Uint8Array | null>(
-        await Promise.all(
-          missingKeys.map(async (key): Promise<[string, Uint8Array | null]> => {
-            try {
-              return [key, await options.loadMedia(key)];
-            } catch {
-              return [key, null];
-            }
-          }),
-        ),
-      );
+      const fetchedRowCovers = await nextRowPromise;
+      if ((row + 1) * 5 < best50.length) {
+        nextRowPromise = prefetchRowCovers(row + 1);
+      }
 
       for (let col = 0; col < rowSlice.length; col++) {
         const idx = row * 5 + col;
@@ -818,11 +799,12 @@ export async function renderB50Poster(
       }
     }
 
-    if (bandItems.length === 0) break;
-    const bandTop = bandItems[0].y;
-    const bandBottom = bandItems[bandItems.length - 1].y + CARD_HEIGHT;
+    if (!band.includeHeader && bandItems.length === 0) break;
+    const bandTop = band.includeHeader ? 0 : bandItems[0].y;
+    const bandBottom = band.includeHeader ? B40_TOP : bandItems[bandItems.length - 1].y + CARD_HEIGHT;
     const bandHeight = bandBottom - bandTop;
-    const bandSvg = buildRowBandSvg(bandItems, bandTop, bandHeight, theme);
+    const extraFragment = band.includeHeader ? buildHeaderSvgFragment(snapshot, theme) : "";
+    const bandSvg = buildRowBandSvg(bandItems, bandTop, bandHeight, theme, extraFragment);
     const resvg: ResvgType = await resvgMod.Resvg.async(bandSvg, {
       font: { fontBuffers, loadSystemFonts: false, defaultFontFamily: "Noto Sans CJK SC" },
     });

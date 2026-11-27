@@ -7,10 +7,13 @@ import { ArcaeaClient } from "./arcaea-client";
 import { measure, Profiler } from "./profiling";
 
 const CONTINUATION_BUDGET_MS = 120_000;
+const INLINE_BUDGET_MS = 22_000;
 
 interface SubmissionOptions {
   background?: Pick<ExecutionContext, "waitUntil">;
   profiling?: Profiler;
+  /** When true and `background` is present, execute immediately in `waitUntil` (0ms queue wait) and fall back to Queue if it yields or errors. */
+  inline?: boolean;
 }
 
 export interface JobRow {
@@ -63,14 +66,34 @@ export async function retryJob(env: Env, id: string, options: SubmissionOptions 
   return submitPersisted(env, row, true, options);
 }
 async function submitPersisted(env: Env, row: JobRow, created: boolean, options: SubmissionOptions) {
-  // The job and outbox are already committed. Start sending immediately, but
-  // allow HTTP callers to respond while the queue send and receipt finish.
-  // Scheduled recovery can redispatch the durable outbox after any failure.
+  // The job and outbox are already committed. For inline background mode, run
+  // immediately in this fetch() isolate (0ms queue wait + APAC region placement)
+  // and hand off to the durable Queue only if it yields or fails.
+  if (options.inline && options.background) {
+    const pending = runInlineJob(env, row.id, row.step)
+      .catch(error => console.error("[inline-job] deferred", error));
+    options.background.waitUntil(pending);
+    return { jobId: row.id, status: row.status, job: jobView(row) };
+  }
   const pending = (created ? sendJob(env, row.id, row.step, undefined, options.profiling) : dispatch(env, row.id))
     .catch(error => console.error("[outbox] deferred", error));
   if (options.background) options.background.waitUntil(pending);
   else await pending;
   return { jobId: row.id, status: row.status, job: jobView(row) };
+}
+async function runInlineJob(env: Env, jobId: string, step: number) {
+  try {
+    await processJobMessage(env, { jobId, step }, {
+      budgetMs: INLINE_BUDGET_MS,
+      onAck: () => {},
+      onRetry: (delaySeconds) => {
+        void sendJob(env, jobId, step, delaySeconds).catch(error => console.error("[outbox] deferred", error));
+      },
+    });
+  } catch (error) {
+    console.error("[inline-job] fallback to queue", jobId, error);
+    await dispatch(env, jobId).catch(err => console.error("[outbox] deferred", err));
+  }
 }
 async function sendJob(env: Env, jobId: string, step: number, delaySeconds?: number, profiling?: Profiler) {
   await measure(profiling, "queue.send", () => env.JOBS.send({ jobId, step }, delaySeconds ? { delaySeconds } : undefined));
@@ -124,87 +147,99 @@ async function failJob(env: Env, row: JobRow, message: string, expired = false) 
 export async function consume(env: Env, batch: MessageBatch<JobMessage>) {
   if (env.MUTATIONS_ENABLED === "false") { batch.retryAll({ delaySeconds: 60 }); return; }
   for (const message of batch.messages) {
-    const store = new Store(env), lease = crypto.randomUUID(), now = Date.now();
-    // A lease lasts longer than a consumer invocation. Claims also serialize
-    // invocations if a redelivery overlaps a deployment or runtime restart.
-    const claimStarted = performance.now();
-    const row = await store.sql(`UPDATE jobs SET status='running',lease_token=?,lease_until=?,attempts=attempts+1,updated_at=?
-      WHERE id=? AND step=? AND status='queued'
-      AND NOT EXISTS(SELECT 1 FROM jobs WHERE status='running' AND lease_until>?) RETURNING *`,
-      lease, now + 20 * 60_000, new Date(now).toISOString(), message.body.jobId, message.body.step, now).first<JobRow>();
-    if (!row) {
-      const current = await store.sql("SELECT status,step FROM jobs WHERE id=?", message.body.jobId).first<JobRow>();
-      if (current?.step === message.body.step && (current.status === "queued" || current.status === "running")) message.retry({ delaySeconds: 60 });
-      else {
-        if (current?.status === "queued") await dispatch(env, message.body.jobId).catch(error => console.error("[outbox] deferred", error));
-        message.ack();
-      }
-      continue;
+    await processJobMessage(env, message.body, {
+      budgetMs: CONTINUATION_BUDGET_MS,
+      onAck: () => message.ack(),
+      onRetry: (delaySeconds) => message.retry({ delaySeconds }),
+    });
+  }
+}
+
+async function processJobMessage(
+  env: Env,
+  body: JobMessage,
+  callbacks: { budgetMs: number; onAck: () => void; onRetry: (delaySeconds: number) => void },
+) {
+  const store = new Store(env), lease = crypto.randomUUID(), now = Date.now();
+  // A lease lasts longer than a consumer invocation. Claims also serialize
+  // invocations if a redelivery overlaps a deployment or runtime restart.
+  const claimStarted = performance.now();
+  const row = await store.sql(`UPDATE jobs SET status='running',lease_token=?,lease_until=?,attempts=attempts+1,updated_at=?
+    WHERE id=? AND step=? AND status='queued'
+    AND NOT EXISTS(SELECT 1 FROM jobs WHERE status='running' AND lease_until>?) RETURNING *`,
+    lease, now + 20 * 60_000, new Date(now).toISOString(), body.jobId, body.step, now).first<JobRow>();
+  if (!row) {
+    const current = await store.sql("SELECT status,step FROM jobs WHERE id=?", body.jobId).first<JobRow>();
+    if (current?.step === body.step && (current.status === "queued" || current.status === "running")) callbacks.onRetry(60);
+    else {
+      if (current?.status === "queued") await dispatch(env, body.jobId).catch(error => console.error("[outbox] deferred", error));
+      callbacks.onAck();
     }
-    const previousTimings = (JSON.parse(row.state) as SyncState).timings ?? [];
-    const profiling = new Profiler(Date.parse(row.created_at), previousTimings);
-    if (!previousTimings.length) profiling.record("queue.wait", 0, now - Date.parse(row.created_at));
-    profiling.record("d1.claim", now - Date.parse(row.created_at), performance.now() - claimStarted);
-    try {
-      const deadline = Date.now() + CONTINUATION_BUDGET_MS;
-      let client: Promise<ArcaeaClient> | undefined;
-      const execution = {
-        // Reuse one client here; its encrypted D1 session also survives queue
-        // continuations. Cookies never enter job state or queue messages.
-        getClient: () => client ??= ArcaeaClient.login(env, profiling),
-        shouldYield: () => Date.now() >= deadline,
-        profiling,
-      };
-      while (true) {
-        const stage = row.stage;
-        const next = await profiling.measure(`stage.${stage}`, () => runStep(env, row, async state => {
-          const body = JSON.stringify({ ...state, timings: profiling.snapshot() });
-          const written = await profiling.measure("d1.checkpoint", () => store.sql("UPDATE jobs SET state=?,updated_at=? WHERE id=? AND lease_token=? AND status='running'", body, new Date().toISOString(), row.id, lease).run());
-          if (!written.meta.changes) throw new Error("Task lease lost");
-          row.state = body;
-        }, execution));
-        const continuing = !next.result && !execution.shouldYield();
-        const status = next.result ? "succeeded" : continuing ? "running" : "queued";
-        next.state.timings = profiling.snapshot();
-        // Once succeeded, drop the duplicated 22 KB preview snapshot from jobs.state (result already holds it).
-        const persistedState = next.result ? { ...next.state, preview: undefined } : next.state;
-        const state = JSON.stringify(persistedState), result = next.result ? JSON.stringify(next.result) : null;
-        const [written] = await profiling.measure(`d1.commit.${stage}`, () => env.DB.batch([
-          store.sql(`UPDATE jobs SET status=?,stage=?,state=?,result=?,error=NULL,step=step+1,attempts=?,lease_token=?,lease_until=?,updated_at=?
-            WHERE id=? AND step=? AND lease_token=? AND status='running'`, status, next.stage, state, result,
-            continuing ? 1 : 0, continuing ? lease : null, continuing ? row.lease_until : null, new Date().toISOString(), row.id, row.step, lease),
-          store.sql(`DELETE FROM outbox WHERE job_id=? AND step=?
-            AND NOT EXISTS(SELECT 1 FROM jobs WHERE id=? AND step=?)`, row.id, row.step, row.id, row.step),
-          // Keep a durable continuation even while running, so recovery after
-          // a process restart can dispatch the latest persisted step.
-          store.sql("INSERT OR IGNORE INTO outbox(job_id,step) SELECT id,step FROM jobs WHERE id=? AND status IN ('queued','running')", row.id),
-        ]));
+    return;
+  }
+  const previousTimings = (JSON.parse(row.state) as SyncState).timings ?? [];
+  const profiling = new Profiler(Date.parse(row.created_at), previousTimings);
+  if (!previousTimings.length) profiling.record("queue.wait", 0, now - Date.parse(row.created_at));
+  profiling.record("d1.claim", now - Date.parse(row.created_at), performance.now() - claimStarted);
+  try {
+    const deadline = Date.now() + callbacks.budgetMs;
+    let client: Promise<ArcaeaClient> | undefined;
+    const execution = {
+      // Reuse one client here; its encrypted D1 session also survives queue
+      // continuations. Cookies never enter job state or queue messages.
+      getClient: () => client ??= ArcaeaClient.login(env, profiling),
+      shouldYield: () => Date.now() >= deadline,
+      profiling,
+    };
+    while (true) {
+      const stage = row.stage;
+      const next = await profiling.measure(`stage.${stage}`, () => runStep(env, row, async state => {
+        const serialized = JSON.stringify({ ...state, timings: profiling.snapshot() });
+        const written = await profiling.measure("d1.checkpoint", () => store.sql("UPDATE jobs SET state=?,updated_at=? WHERE id=? AND lease_token=? AND status='running'", serialized, new Date().toISOString(), row.id, lease).run());
         if (!written.meta.changes) throw new Error("Task lease lost");
-        Object.assign(row, { status, stage: next.stage, state, result, step: row.step + 1, attempts: continuing ? 1 : 0 });
-        if (!continuing) break;
-      }
-      message.ack();
-      await dispatch(env).catch(error => console.error("[outbox] deferred", error));
-    } catch (error) {
-      console.error("[job] step failed", row.id, row.stage, error);
-      const reason = error instanceof Error ? error.message : "同步失败。";
-      // Preserve completed spans together with the last durable work checkpoint.
-      // In-memory progress from a failed media group must never be committed.
-      const state = JSON.stringify({ ...JSON.parse(row.state), timings: profiling.snapshot() });
-      await store.sql("UPDATE jobs SET state=? WHERE id=? AND lease_token=? AND status='running'", state, row.id, lease).run();
-      row.state = state;
-      if (row.attempts >= 4 || (error instanceof AppError && error.status < 500)) {
-        await failJob(env, row, reason);
-        message.ack();
-      } else {
-        const written = await store.sql("UPDATE jobs SET status='queued',lease_token=NULL,lease_until=NULL,error=?,updated_at=? WHERE id=? AND lease_token=?", reason, new Date().toISOString(), row.id, lease).run();
-        if (written.meta.changes && row.step !== message.body.step) {
-          // Continuing in-process advanced the durable step. Retrying the old
-          // queue body would be stale, so dispatch the current outbox instead.
-          try { await dispatch(env, row.id, 30 * row.attempts); message.ack(); }
-          catch (error) { console.error("[outbox] deferred", error); message.retry({ delaySeconds: 30 * row.attempts }); }
-        } else message.retry({ delaySeconds: 30 * row.attempts });
-      }
+        row.state = serialized;
+      }, execution));
+      const continuing = !next.result && !execution.shouldYield();
+      const status = next.result ? "succeeded" : continuing ? "running" : "queued";
+      next.state.timings = profiling.snapshot();
+      // Once succeeded, drop the duplicated 22 KB preview snapshot from jobs.state (result already holds it).
+      const persistedState = next.result ? { ...next.state, preview: undefined } : next.state;
+      const state = JSON.stringify(persistedState), result = next.result ? JSON.stringify(next.result) : null;
+      const [written] = await profiling.measure(`d1.commit.${stage}`, () => env.DB.batch([
+        store.sql(`UPDATE jobs SET status=?,stage=?,state=?,result=?,error=NULL,step=step+1,attempts=?,lease_token=?,lease_until=?,updated_at=?
+          WHERE id=? AND step=? AND lease_token=? AND status='running'`, status, next.stage, state, result,
+          continuing ? 1 : 0, continuing ? lease : null, continuing ? row.lease_until : null, new Date().toISOString(), row.id, row.step, lease),
+        store.sql(`DELETE FROM outbox WHERE job_id=? AND step=?
+          AND NOT EXISTS(SELECT 1 FROM jobs WHERE id=? AND step=?)`, row.id, row.step, row.id, row.step),
+        // Keep a durable continuation even while running, so recovery after
+        // a process restart can dispatch the latest persisted step.
+        store.sql("INSERT OR IGNORE INTO outbox(job_id,step) SELECT id,step FROM jobs WHERE id=? AND status IN ('queued','running')", row.id),
+      ]));
+      if (!written.meta.changes) throw new Error("Task lease lost");
+      Object.assign(row, { status, stage: next.stage, state, result, step: row.step + 1, attempts: continuing ? 1 : 0 });
+      if (!continuing) break;
+    }
+    callbacks.onAck();
+    await dispatch(env).catch(error => console.error("[outbox] deferred", error));
+  } catch (error) {
+    console.error("[job] step failed", row.id, row.stage, error);
+    const reason = error instanceof Error ? error.message : "同步失败。";
+    // Preserve completed spans together with the last durable work checkpoint.
+    // In-memory progress from a failed media group must never be committed.
+    const state = JSON.stringify({ ...JSON.parse(row.state), timings: profiling.snapshot() });
+    await store.sql("UPDATE jobs SET state=? WHERE id=? AND lease_token=? AND status='running'", state, row.id, lease).run();
+    row.state = state;
+    if (row.attempts >= 4 || (error instanceof AppError && error.status < 500)) {
+      await failJob(env, row, reason);
+      callbacks.onAck();
+    } else {
+      const written = await store.sql("UPDATE jobs SET status='queued',lease_token=NULL,lease_until=NULL,error=?,updated_at=? WHERE id=? AND lease_token=?", reason, new Date().toISOString(), row.id, lease).run();
+      if (written.meta.changes && row.step !== body.step) {
+        // Continuing in-process advanced the durable step. Retrying the old
+        // queue body would be stale, so dispatch the current outbox instead.
+        try { await dispatch(env, row.id, 30 * row.attempts); callbacks.onAck(); }
+        catch (err) { console.error("[outbox] deferred", err); callbacks.onRetry(30 * row.attempts); }
+      } else callbacks.onRetry(30 * row.attempts);
     }
   }
 }

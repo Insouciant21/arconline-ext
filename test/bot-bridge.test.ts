@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { env as bindings } from "cloudflare:workers";
 import { applyD1Migrations } from "cloudflare:test";
 import { api } from "../src/lib/api";
+import { ArcaeaClient } from "../src/lib/arcaea-client";
 import { sha256Hex } from "../src/lib/auth";
 import type { Env, JobMessage } from "../src/lib/environment";
 import type { B50Snapshot } from "../src/lib/types";
@@ -213,5 +214,31 @@ describe("QQ bot bridge endpoints", () => {
     const maintenanceEnv: Env = { ...env, MUTATIONS_ENABLED: "false" };
     const maintRes = await api(maintenanceEnv, botRequest("/api/bot/b50/rerender", "POST", "bridge-secret-123"));
     expect(maintRes.status).toBe(503);
+  });
+
+  it("executes /api/bot/sync inline inside waitUntil without queueing when unchanged B50 finishes fast", async () => {
+    await env.DB.batch([env.DB.prepare("DELETE FROM outbox"), env.DB.prepare("DELETE FROM jobs")]);
+    const snapshot = snapshotFixture("2026-11-27-inline-test");
+    await new Store(env).writeSnapshot(snapshot);
+    vi.spyOn(ArcaeaClient, "login").mockResolvedValue({
+      fetchB50Snapshot: async () => ({ user: snapshot.user, best50: snapshot.best50 }),
+      getPotentialHistory: async () => [],
+    } as unknown as ArcaeaClient);
+
+    const pending: Promise<unknown>[] = [];
+    const syncRes = await api(env, botRequest("/api/bot/sync", "POST", "bridge-secret-123"), {
+      waitUntil: (promise) => { pending.push(promise); },
+    });
+    expect(syncRes.status).toBe(202);
+    const { jobId } = await syncRes.json() as { jobId: string };
+    expect(pending).toHaveLength(1);
+    await Promise.all(pending);
+
+    expect(sent).toHaveLength(0);
+    const jobRes = await api(env, botRequest(`/api/bot/jobs/${jobId}`, "GET", "bridge-secret-123"));
+    expect(jobRes.status).toBe(200);
+    const job = await jobRes.json() as { status: string; result?: { recorded: boolean } };
+    expect(job.status).toBe("succeeded");
+    expect(job.result?.recorded).toBe(false);
   });
 });

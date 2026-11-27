@@ -127,7 +127,7 @@ async function botApi(
   if (path === "/api/bot/sync") {
     method(request, "POST");
     if (env.MUTATIONS_ENABLED === "false") throw new AppError("维护中，暂时停止同步。", 503, "MAINTENANCE");
-    return json(await enqueue(env, "sync", "manual", null, {}, submission), 202, submission.profiling);
+    return json(await enqueue(env, "sync", "manual", null, {}, { ...submission, inline: true }), 202, submission.profiling);
   }
   const jobMatch = path.match(/^\/api\/bot\/jobs\/([a-f0-9-]+)$/);
   if (jobMatch) {
