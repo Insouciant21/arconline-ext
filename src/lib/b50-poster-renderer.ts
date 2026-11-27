@@ -435,8 +435,6 @@ function cardOrigin(index: number): { x: number; y: number; isB10: boolean } {
 const HEADER_BAND_HEIGHT = 270;
 const OVERFLOW_LABEL_TOP = 656;
 const OVERFLOW_LABEL_HEIGHT = 34;
-const FOOTER_BAND_TOP = 2310;
-const FOOTER_BAND_HEIGHT = 56;
 
 function buildHeaderBandSvg(
   snapshot: B50Snapshot,
@@ -498,14 +496,6 @@ function buildOverflowLabelSvg(theme: PosterTheme): string {
   const fontNum = `font-family="Exo, Noto Sans CJK SC, sans-serif"`;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${POSTER_WIDTH}" height="${OVERFLOW_LABEL_HEIGHT}">
     <text x="54" y="${677 - OVERFLOW_LABEL_TOP}" ${fontNum} font-size="16" font-weight="700" letter-spacing="2" fill="${p.sectionB40}">OVERFLOW 40 · #11 – #50</text>
-  </svg>`;
-}
-
-function buildFooterBandSvg(theme: PosterTheme): string {
-  const p = PALETTES[theme];
-  const fontText = `font-family="Noto Sans CJK SC, L2, Open Sans, Exo, sans-serif"`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${POSTER_WIDTH}" height="${FOOTER_BAND_HEIGHT}">
-    <text x="37" y="${2344 - FOOTER_BAND_TOP}" ${fontText} font-size="14" letter-spacing="1.6" fill="${p.footer}">ARCONLINE-EXT · ADAPTIVE GLASS B50</text>
   </svg>`;
 }
 
@@ -690,11 +680,10 @@ export async function renderB50Poster(
   blitRgba(canvasPixels, POSTER_WIDTH, POSTER_HEIGHT, avatarFrameImg.pixels, avatarFrameImg.width, avatarFrameImg.height, 604, 146);
   blitRgba(canvasPixels, POSTER_WIDTH, POSTER_HEIGHT, pttBadgeImg.pixels, pttBadgeImg.width, pttBadgeImg.height, 1052, 141);
 
-  // 4. Composite Header, Overflow label, and Footer SVG bands cleanly (<= 2 MB each)
+  // 4. Composite Header and Overflow label SVG bands cleanly (<= 2 MB each)
   const bandSpecs: Array<{ svg: string; top: number }> = [
     { svg: buildHeaderBandSvg(snapshot, theme, options.constantsVersion || CHART_CONSTANTS_VERSION), top: 0 },
     { svg: buildOverflowLabelSvg(theme), top: OVERFLOW_LABEL_TOP },
-    { svg: buildFooterBandSvg(theme), top: FOOTER_BAND_TOP },
   ];
   for (const band of bandSpecs) {
     const resvg: ResvgType = await resvgMod.Resvg.async(band.svg, {
