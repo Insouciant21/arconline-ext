@@ -114,13 +114,13 @@ def make_frame_lines(theme):
     for cy, col in [(248, diamond_b10), (H - 52, diamond_b40)]:
         d.polygon([(16, cy - 6), (22, cy), (16, cy + 6), (10, cy)], fill=col)
 
-    # BEST 10 line (text goes at x=37..210, line from x=212..W-38 at y=253)
+    # BEST 10 line (text goes at x=54..250, line from x=262..W-38 at y=253)
     d.polygon([(41, 248), (46, 253), (41, 258), (36, 253)], fill=diamond_b10)
-    d.line([(212, 253), (W - 38, 253)], fill=line_b10, width=1)
+    d.line([(262, 253), (W - 38, 253)], fill=line_b10, width=1)
 
-    # OVERFLOW 40 line (text at x=37..252, line from x=254..W-38 at y=672)
+    # OVERFLOW 40 line (text at x=54..298, line from x=310..W-38 at y=672)
     d.polygon([(41, 667), (46, 672), (41, 677), (36, 672)], fill=diamond_b40)
-    d.line([(256, 672), (W - 38, 672)], fill=line_b40, width=1)
+    d.line([(310, 672), (W - 38, 672)], fill=line_b40, width=1)
     return ov
 
 frame_dark = make_frame_lines("dark")
@@ -267,10 +267,10 @@ try {
     }
     .art-pill {
       position: absolute;
-      right: 6px;
-      bottom: 6px;
-      width: 72px;
-      height: 32px;
+      right: 5px;
+      bottom: 5px;
+      width: 78px;
+      height: 33px;
       border: 1px solid rgba(255, 255, 255, 0.28);
       background: rgba(14, 15, 28, 0.78);
     }

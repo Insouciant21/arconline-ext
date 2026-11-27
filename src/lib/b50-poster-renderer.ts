@@ -458,38 +458,38 @@ function buildHeaderBandSvg(
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${POSTER_WIDTH}" height="${HEADER_BAND_HEIGHT}">
     <g>
-      <rect x="442" y="42" width="166" height="26" fill="${p.badgeBg}" stroke="${p.badgeBorder}" stroke-width="1"/>
-      <text x="525" y="59" text-anchor="middle" ${fontText} font-size="12" font-weight="600" letter-spacing="2" fill="${p.badgeText}">BEST 50 OVERVIEW</text>
-      <text x="442" y="88" ${fontText} font-size="12.5" letter-spacing="0.8" fill="${p.tagline}">Two young girls explore a shattered world—filled with sound: a past to be uncovered</text>
-      <text x="442" y="114" ${fontNum} font-size="12.5" letter-spacing="1" fill="${p.muted}">
+      <rect x="442" y="38" width="182" height="28" fill="${p.badgeBg}" stroke="${p.badgeBorder}" stroke-width="1"/>
+      <text x="533" y="57" text-anchor="middle" ${fontText} font-size="13.5" font-weight="600" letter-spacing="2" fill="${p.badgeText}">BEST 50 OVERVIEW</text>
+      <text x="442" y="88" ${fontText} font-size="13.5" letter-spacing="0.6" fill="${p.tagline}">Two young girls explore a shattered world—filled with sound: a past to be uncovered</text>
+      <text x="442" y="116" ${fontNum} font-size="14.5" letter-spacing="0.9" fill="${p.muted}">
         <tspan fill="${p.exactPtt}" font-weight="700">SYNCED</tspan> ${escapeXml(syncedText)}   ·   <tspan fill="${p.exactPtt}" font-weight="700">CONSTANTS</tspan> v${escapeXml(constantsVersion)}
       </text>
     </g>
 
     <g>
-      <text x="1520" y="66" ${fontText} font-size="11" letter-spacing="1.8" fill="${p.muted}">BEST 10 AVG</text>
-      <text x="1520" y="102" ${fontNum} font-size="27" font-weight="700" fill="${p.pttAccent}">${stats.top10Avg.toFixed(4)}</text>
+      <text x="1518" y="63" ${fontText} font-size="13" font-weight="600" letter-spacing="1.6" fill="${p.muted}">BEST 10 AVG</text>
+      <text x="1518" y="103" ${fontNum} font-size="33" font-weight="700" fill="${p.pttAccent}">${stats.top10Avg.toFixed(4)}</text>
 
-      <text x="1719" y="66" ${fontText} font-size="11" letter-spacing="1.8" fill="${p.muted}">REST 40 AVG</text>
-      <text x="1719" y="102" ${fontNum} font-size="27" font-weight="700" fill="${p.inkStrong}">${rest40Avg.toFixed(4)}</text>
+      <text x="1717" y="63" ${fontText} font-size="13" font-weight="600" letter-spacing="1.6" fill="${p.muted}">REST 40 AVG</text>
+      <text x="1717" y="103" ${fontNum} font-size="33" font-weight="700" fill="${p.inkStrong}">${rest40Avg.toFixed(4)}</text>
     </g>
 
     <g>
-      <text x="${nameStartX}" y="188" ${fontText} font-size="34" font-weight="700" fill="${p.inkStrong}">${escapeXml(truncateText(userName, 275, 34))}</text>
-      <rect x="${nameStartX}" y="200" width="110" height="22" fill="${p.uidBg}" stroke="${p.uidBorder}" stroke-width="1"/>
-      <text x="${nameStartX + 55}" y="215" text-anchor="middle" ${fontNum} font-size="12" letter-spacing="1" fill="${p.uidText}">${escapeXml(userCode)}</text>
-      <text x="${nameStartX + 122}" y="215" ${fontText} font-size="12" letter-spacing="1.5" fill="${p.muted}">BEST 50 RECORD</text>
+      <text x="${nameStartX}" y="186" ${fontText} font-size="38" font-weight="700" fill="${p.inkStrong}">${escapeXml(truncateText(userName, 290, 38))}</text>
+      <rect x="${nameStartX}" y="198" width="126" height="25" fill="${p.uidBg}" stroke="${p.uidBorder}" stroke-width="1"/>
+      <text x="${nameStartX + 63}" y="216" text-anchor="middle" ${fontNum} font-size="14" letter-spacing="0.9" fill="${p.uidText}">${escapeXml(userCode)}</text>
+      <text x="${nameStartX + 138}" y="216" ${fontText} font-size="14" letter-spacing="1.4" fill="${p.muted}">BEST 50 RECORD</text>
 
-      <text x="1103" y="200" text-anchor="middle" ${fontNum} font-weight="700" fill="#ffffff" stroke="#1c102d" stroke-width="4" paint-order="stroke">
-        <tspan font-size="28">${escapeXml(mainNum)}</tspan><tspan font-size="19">${escapeXml(pttParts[1] ?? "")}</tspan>
+      <text x="1103" y="202" text-anchor="middle" ${fontNum} font-weight="700" fill="#ffffff" stroke="#1c102d" stroke-width="4.5" paint-order="stroke">
+        <tspan font-size="34">${escapeXml(mainNum)}</tspan><tspan font-size="23">${escapeXml(pttParts[1] ?? "")}</tspan>
       </text>
 
-      <line x1="1174" y1="168" x2="1174" y2="218" stroke="${p.uidBorder}" stroke-width="1"/>
-      <text x="1192" y="182" ${fontText} font-size="11" letter-spacing="1.8" fill="${p.muted}">EXACT PTT</text>
-      <text x="1192" y="212" ${fontNum} font-size="24" font-weight="700" fill="${p.exactPtt}">${stats.weightedExact.toFixed(4)}</text>
+      <line x1="1174" y1="164" x2="1174" y2="222" stroke="${p.uidBorder}" stroke-width="1"/>
+      <text x="1192" y="180" ${fontText} font-size="13.5" font-weight="600" letter-spacing="1.6" fill="${p.muted}">EXACT PTT</text>
+      <text x="1192" y="215" ${fontNum} font-size="31" font-weight="700" fill="${p.exactPtt}">${stats.weightedExact.toFixed(4)}</text>
     </g>
 
-    <text x="54" y="257" ${fontNum} font-size="13" font-weight="700" letter-spacing="2.2" fill="${p.sectionB10}">BEST 10 · #01 – #10</text>
+    <text x="54" y="258" ${fontNum} font-size="16" font-weight="700" letter-spacing="2" fill="${p.sectionB10}">BEST 10 · #01 – #10</text>
   </svg>`;
 }
 
@@ -497,7 +497,7 @@ function buildOverflowLabelSvg(theme: PosterTheme): string {
   const p = PALETTES[theme];
   const fontNum = `font-family="Exo, Noto Sans CJK SC, sans-serif"`;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${POSTER_WIDTH}" height="${OVERFLOW_LABEL_HEIGHT}">
-    <text x="54" y="${676 - OVERFLOW_LABEL_TOP}" ${fontNum} font-size="13" font-weight="700" letter-spacing="2.2" fill="${p.sectionB40}">OVERFLOW 40 · #11 – #50</text>
+    <text x="54" y="${677 - OVERFLOW_LABEL_TOP}" ${fontNum} font-size="16" font-weight="700" letter-spacing="2" fill="${p.sectionB40}">OVERFLOW 40 · #11 – #50</text>
   </svg>`;
 }
 
@@ -505,8 +505,8 @@ function buildFooterBandSvg(theme: PosterTheme): string {
   const p = PALETTES[theme];
   const fontText = `font-family="Noto Sans CJK SC, L2, Open Sans, Exo, sans-serif"`;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${POSTER_WIDTH}" height="${FOOTER_BAND_HEIGHT}">
-    <text x="37" y="${2342 - FOOTER_BAND_TOP}" ${fontText} font-size="12" letter-spacing="1.6" fill="${p.footer}">ARCONLINE-EXT · ADAPTIVE GLASS B50</text>
-    <text x="1883" y="${2342 - FOOTER_BAND_TOP}" text-anchor="end" ${fontText} font-size="12" letter-spacing="1.6" fill="${p.footer}">5 × 10 GRID · 1:1 SQUARE ART · MOBILE SCORE CARD STYLE</text>
+    <text x="37" y="${2344 - FOOTER_BAND_TOP}" ${fontText} font-size="14" letter-spacing="1.6" fill="${p.footer}">ARCONLINE-EXT · ADAPTIVE GLASS B50</text>
+    <text x="1883" y="${2344 - FOOTER_BAND_TOP}" text-anchor="end" ${fontText} font-size="14" letter-spacing="1.6" fill="${p.footer}">5 × 10 GRID · 1:1 SQUARE ART · MOBILE SCORE CARD STYLE</text>
   </svg>`;
 }
 
@@ -532,64 +532,63 @@ function buildRowBandSvg(
     const bonus = shinyPureCount(score);
     const playedAt = formatPlayedDate(score.timePlayed);
 
-    const bodyX = x + 162;
-    const bodyRight = x + CARD_WIDTH - 10;
-    const bodyW = bodyRight - bodyX; // 186px
+    const bodyX = x + 160;
+    const bodyRight = x + CARD_WIDTH - 8;
+    const bodyW = bodyRight - bodyX; // 190px
 
-    const titleLines = wrapLines(title, bodyW, 13.5, 2);
+    const titleLines = wrapLines(title, bodyW, 15.5, 2);
     const hasTwoLines = titleLines.length > 1;
-    const titleStartY = ly + (hasTwoLines ? 22 : 25);
-    const metaY = ly + (hasTwoLines ? 58 : 50);
-    const resultY = ly + (hasTwoLines ? 95 : 90);
-    const detailY = ly + 141;
-    const countsY = ly + 172;
+    const titleStartY = ly + (hasTwoLines ? 20 : 24);
+    const metaY = ly + (hasTwoLines ? 61 : 52);
+    const resultY = ly + (hasTwoLines ? 99 : 94);
+    const detailY = ly + 142;
+    const countsY = ly + 173;
 
     const pttText = `${score.rating.toFixed(3)} `;
-    const artistMaxW = bodyW - 72;
-    const artistText = truncateText(artist, artistMaxW, 10.5);
-    const songIdText = truncateText(score.songId, 78, 8.5);
+    const artistMaxW = bodyW - 82;
+    const artistText = truncateText(artist, artistMaxW, 12);
+    const songIdText = truncateText(score.songId, 74, 10);
     const rankColor = isB10 ? "#e9e2ff" : "#ffffff";
 
     // PURE / FAR / LOST columns match card-shell proportions: 1.9fr | 1fr | 1fr across 358px
-    // Col widths: col1 ~ 174px (cx = 87), col2 ~ 92px (cx = 220), col3 ~ 92px (cx = 312)
     const pureValue = SCORE_FORMAT.format(score.perfectCount);
     const pureBonus = bonus !== null ? `+${bonus}` : "";
 
     return `<g>
       <!-- Art overlay text: #rank & chart constant -->
-      <text x="${x + 9}" y="${ly + 21}" ${fontNum} font-size="14" font-weight="700" letter-spacing="0.8" fill="${rankColor}" stroke="rgba(0,0,0,0.78)" stroke-width="3" paint-order="stroke">#${String(rank).padStart(2, "0")}</text>
-      <text x="${x + 99}" y="${ly + 135}" text-anchor="middle" ${fontNum} font-size="13.5" font-weight="700" fill="#ffffff">${cc.toFixed(1)}</text>
+      <text x="${x + 9}" y="${ly + 24}" ${fontNum} font-size="17" font-weight="700" letter-spacing="0.6" fill="${rankColor}" stroke="rgba(0,0,0,0.82)" stroke-width="3.5" paint-order="stroke">#${String(rank).padStart(2, "0")}</text>
+      <text x="${x + 95}" y="${ly + 136}" text-anchor="middle" ${fontNum} font-size="15.5" font-weight="700" fill="#ffffff">${cc.toFixed(1)}</text>
 
       <!-- Track Title (1-2 lines) -->
       ${titleLines
         .map(
           (line, idx) =>
-            `<text x="${bodyX}" y="${titleStartY + idx * 16}" ${fontText} font-size="13.5" font-weight="600" fill="${p.inkStrong}">${escapeXml(line)}</text>`,
+            `<text x="${bodyX}" y="${titleStartY + idx * 17.5}" ${fontText} font-size="15.5" font-weight="600" fill="${p.inkStrong}">${escapeXml(line)}</text>`,
         )
         .join("")}
 
       <!-- Artist + Single-song PTT -->
-      <text x="${bodyX}" y="${metaY}" ${fontText} font-size="10.5" fill="${p.muted}">${escapeXml(artistText)}</text>
-      <text x="${bodyRight}" y="${metaY}" text-anchor="end" ${fontNum} font-size="12.5" font-weight="700" fill="${p.pttAccent}">${escapeXml(pttText)}<tspan font-size="7.5" fill="${p.muted2}" font-weight="600">PTT</tspan></text>
+      <text x="${bodyX}" y="${metaY}" ${fontText} font-size="12" fill="${p.muted}">${escapeXml(artistText)}</text>
+      <text x="${bodyRight}" y="${metaY}" text-anchor="end" ${fontNum} font-size="15.5" font-weight="700" fill="${p.pttAccent}">${escapeXml(pttText)}<tspan font-size="9" fill="${p.muted2}" font-weight="600">PTT</tspan></text>
 
       <!-- Result row: borderless gradient Grade + Score + ClearType -->
-      <text x="${bodyX}" y="${resultY}" ${fontNum} font-size="15.5" font-weight="700" letter-spacing="0.3" fill="url(#grade-${grade.group})">${escapeXml(grade.label)}</text>
-      <text x="${bodyX + 35}" y="${resultY}" ${fontNum} font-size="15" font-weight="700" letter-spacing="0.2" fill="${p.inkStrong}">${SCORE_FORMAT.format(score.score)}</text>
-      <text x="${bodyRight}" y="${resultY}" text-anchor="end" ${fontNum} font-size="11.5" font-weight="700" letter-spacing="0.7" fill="${clearColor}">${escapeXml(clearCode)}</text>
+      <text x="${bodyX}" y="${resultY}" ${fontNum} font-size="18.5" font-weight="700" letter-spacing="0.2" fill="url(#grade-${grade.group})">${escapeXml(grade.label)}</text>
+      <text x="${bodyX + 41}" y="${resultY}" ${fontNum} font-size="20" font-weight="700" letter-spacing="0.1" fill="${p.inkStrong}">${SCORE_FORMAT.format(score.score)}</text>
+      <text x="${bodyRight}" y="${resultY}" text-anchor="end" ${fontNum} font-size="14" font-weight="700" letter-spacing="0.6" fill="${clearColor}">${escapeXml(clearCode)}</text>
 
       <!-- Detail row: DATE + songId -->
-      <text x="${bodyX}" y="${detailY}" ${fontNum} font-size="9" letter-spacing="0.4" fill="${p.muted}"><tspan font-size="8" fill="${p.muted2}" font-weight="600" letter-spacing="0.9">DATE </tspan>${escapeXml(playedAt)}</text>
-      <text x="${bodyRight}" y="${detailY}" text-anchor="end" ${fontText} font-size="8.5" fill="${p.muted2}">${escapeXml(songIdText)}</text>
+      <text x="${bodyX}" y="${detailY}" ${fontNum} font-size="11" letter-spacing="0.3" fill="${p.muted}"><tspan font-size="9.5" fill="${p.muted2}" font-weight="600" letter-spacing="0.8">DATE </tspan>${escapeXml(playedAt)}</text>
+      <text x="${bodyRight}" y="${detailY}" text-anchor="end" ${fontText} font-size="10" fill="${p.muted2}">${escapeXml(songIdText)}</text>
 
       <!-- Bottom counts bar -->
-      <text x="${x + 87}" y="${countsY}" text-anchor="middle" ${fontNum} font-size="11" font-weight="700" fill="${p.pure}">
-        <tspan font-size="8.5" font-weight="400" fill="${p.muted2}" letter-spacing="0.4">PURE </tspan>${pureValue}${pureBonus ? `<tspan font-size="8.5" font-weight="600"> ${pureBonus}</tspan>` : ""}
+      <text x="${x + 87}" y="${countsY}" text-anchor="middle" ${fontNum} font-size="13" font-weight="700" fill="${p.pure}">
+        <tspan font-size="10" font-weight="400" fill="${p.muted2}" letter-spacing="0.3">PURE </tspan>${pureValue}${pureBonus ? `<tspan font-size="10" font-weight="600"> ${pureBonus}</tspan>` : ""}
       </text>
-      <text x="${x + 220}" y="${countsY}" text-anchor="middle" ${fontNum} font-size="11" font-weight="700" fill="${p.far}">
-        <tspan font-size="8.5" font-weight="400" fill="${p.muted2}" letter-spacing="0.4">FAR </tspan>${SCORE_FORMAT.format(score.nearCount)}
+      <text x="${x + 220}" y="${countsY}" text-anchor="middle" ${fontNum} font-size="13" font-weight="700" fill="${p.far}">
+        <tspan font-size="10" font-weight="400" fill="${p.muted2}" letter-spacing="0.3">FAR </tspan>${SCORE_FORMAT.format(score.nearCount)}
       </text>
-      <text x="${x + 312}" y="${countsY}" text-anchor="middle" ${fontNum} font-size="11" font-weight="700" fill="${p.lost}">
-        <tspan font-size="8.5" font-weight="400" fill="${p.muted2}" letter-spacing="0.4">LOST </tspan>${SCORE_FORMAT.format(score.missCount)}
+      <text x="${x + 312}" y="${countsY}" text-anchor="middle" ${fontNum} font-size="13" font-weight="700" fill="${p.lost}">
+        <tspan font-size="10" font-weight="400" fill="${p.muted2}" letter-spacing="0.3">LOST </tspan>${SCORE_FORMAT.format(score.missCount)}
       </text>
     </g>`;
   });
@@ -798,7 +797,7 @@ export async function renderB50Poster(
       const diffCode = difficultyCode(score.difficulty, score.difficultyAlias);
       const diffImg = diffMap.get(diffCode);
       if (diffImg) {
-        // Inside 72x32 pill at artOverlay (right:6px, bottom:6px -> x+1+151-6-24-4 = x+122, y+1+151-6-28 = y+118)
+        // Inside 78x33 pill at artOverlay (right:5px, bottom:5px)
         blitRgba(
           canvasPixels,
           POSTER_WIDTH,
@@ -807,7 +806,7 @@ export async function renderB50Poster(
           diffImg.width,
           diffImg.height,
           pos.x + 120,
-          pos.y + 118,
+          pos.y + 119,
         );
       }
 
