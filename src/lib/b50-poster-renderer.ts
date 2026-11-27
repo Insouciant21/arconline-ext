@@ -536,11 +536,11 @@ function buildRowBandSvg(
     const bodyRight = x + CARD_WIDTH - 8;
     const bodyW = bodyRight - bodyX; // 190px
 
-    const titleLines = wrapLines(title, bodyW, 15.5, 2);
+    const titleLines = wrapLines(title, bodyW, 18, 2);
     const hasTwoLines = titleLines.length > 1;
-    const titleStartY = ly + (hasTwoLines ? 20 : 24);
-    const metaY = ly + (hasTwoLines ? 61 : 52);
-    const resultY = ly + (hasTwoLines ? 99 : 94);
+    const titleStartY = ly + (hasTwoLines ? 22 : 26);
+    const metaY = ly + (hasTwoLines ? 66 : 54);
+    const resultY = ly + (hasTwoLines ? 104 : 98);
     const detailY = ly + 142;
     const countsY = ly + 173;
 
@@ -563,7 +563,7 @@ function buildRowBandSvg(
       ${titleLines
         .map(
           (line, idx) =>
-            `<text x="${bodyX}" y="${titleStartY + idx * 17.5}" ${fontText} font-size="15.5" font-weight="600" fill="${p.inkStrong}">${escapeXml(line)}</text>`,
+            `<text x="${bodyX}" y="${titleStartY + idx * 20}" ${fontText} font-size="18" font-weight="700" fill="${p.inkStrong}">${escapeXml(line)}</text>`,
         )
         .join("")}
 
