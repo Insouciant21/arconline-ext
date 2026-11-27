@@ -506,7 +506,6 @@ function buildFooterBandSvg(theme: PosterTheme): string {
   const fontText = `font-family="Noto Sans CJK SC, L2, Open Sans, Exo, sans-serif"`;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${POSTER_WIDTH}" height="${FOOTER_BAND_HEIGHT}">
     <text x="37" y="${2344 - FOOTER_BAND_TOP}" ${fontText} font-size="14" letter-spacing="1.6" fill="${p.footer}">ARCONLINE-EXT · ADAPTIVE GLASS B50</text>
-    <text x="1883" y="${2344 - FOOTER_BAND_TOP}" text-anchor="end" ${fontText} font-size="14" letter-spacing="1.6" fill="${p.footer}">5 × 10 GRID · 1:1 SQUARE ART · MOBILE SCORE CARD STYLE</text>
   </svg>`;
 }
 
