@@ -171,4 +171,47 @@ describe("QQ bot bridge endpoints", () => {
     expect(jobRes.status).toBe(200);
     expect((await jobRes.json() as { id: string }).id).toBe(syncBody.jobId);
   });
+
+  it("exposes custom B50 metadata, streams custom/ R2 media, and enforces rerender guards", async () => {
+    const snapshot: B50Snapshot = {
+      ...snapshotFixture("2026-11-27-custom-test"),
+      customImageKey: "custom/2026-11-27-custom-test-bg-04-abc123.jpg",
+      customImageTheme: "dark",
+      customBackgroundId: "bg-04",
+    };
+    const store = new Store(env);
+    await store.writeSnapshot(snapshot);
+    await env.ARCHIVE.put(snapshot.customImageKey!, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), {
+      httpMetadata: { contentType: "image/jpeg" },
+    });
+
+    const enriched = await store.latest();
+    expect(enriched?.customImageUrl).toBe(`/api/media/custom/${encodeURIComponent("2026-11-27-custom-test-bg-04-abc123.jpg")}`);
+
+    const b50Res = await api(env, botRequest("/api/bot/b50", "GET", "bridge-secret-123"));
+    expect(b50Res.status).toBe(200);
+    const b50 = await b50Res.json() as {
+      customImageKey: string | null;
+      customImageTheme: string | null;
+      customBackgroundId: string | null;
+    };
+    expect(b50.customImageKey).toBe(snapshot.customImageKey);
+    expect(b50.customImageTheme).toBe("dark");
+    expect(b50.customBackgroundId).toBe("bg-04");
+
+    const customMediaRes = await api(env, botRequest(`/api/bot/media/${snapshot.customImageKey}`, "GET", "bridge-secret-123"));
+    expect(customMediaRes.status).toBe(200);
+    expect(customMediaRes.headers.get("content-type")).toBe("image/jpeg");
+    expect(new Uint8Array(await customMediaRes.arrayBuffer())).toEqual(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+
+    const traversalRes = await api(env, botRequest("/api/bot/media/custom/..%2Fsecret.jpg", "GET", "bridge-secret-123"));
+    expect(traversalRes.status).toBe(400);
+
+    const invalidBgRes = await api(env, botRequest("/api/bot/b50/rerender?bg=../../bad", "POST", "bridge-secret-123"));
+    expect(invalidBgRes.status).toBe(400);
+
+    const maintenanceEnv: Env = { ...env, MUTATIONS_ENABLED: "false" };
+    const maintRes = await api(maintenanceEnv, botRequest("/api/bot/b50/rerender", "POST", "bridge-secret-123"));
+    expect(maintRes.status).toBe(503);
+  });
 });

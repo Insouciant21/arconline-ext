@@ -2,7 +2,6 @@ import type { PhotonImage as PhotonImageType } from "@cf-wasm/photon/workerd";
 import type { Resvg as ResvgType } from "@cf-wasm/resvg/workerd";
 import type { Env } from "./environment";
 import { publicAssetUrl, putAsset } from "./r2";
-import type { Store } from "./store";
 import type { Best50Score, B50Snapshot } from "./types";
 import { computeSnapshotStats } from "./history-view";
 import {
@@ -80,7 +79,6 @@ interface DecodedRgba {
 }
 
 interface ThemePalette {
-  ink: string;
   inkStrong: string;
   muted: string;
   muted2: string;
@@ -95,7 +93,6 @@ interface ThemePalette {
   uidBorder: string;
   uidText: string;
   tagline: string;
-  footer: string;
   gradeHigh: [string, string];
   gradeMid: [string, string];
   gradeLow: [string, string];
@@ -107,7 +104,6 @@ interface ThemePalette {
 
 const PALETTES: Record<PosterTheme, ThemePalette> = {
   dark: {
-    ink: "#f4f6ff",
     inkStrong: "#ffffff",
     muted: "#a8aecb",
     muted2: "#7d83a2",
@@ -122,7 +118,6 @@ const PALETTES: Record<PosterTheme, ThemePalette> = {
     uidBorder: "rgba(255, 255, 255, 0.18)",
     uidText: "#e5e8fa",
     tagline: "rgba(226, 230, 250, 0.80)",
-    footer: "rgba(192, 198, 228, 0.62)",
     gradeHigh: ["#e0a2ff", "#67e1fa"],
     gradeMid: ["#de9df0", "#ef7dd6"],
     gradeLow: ["#bfa8cc", "#d8badf"],
@@ -139,7 +134,6 @@ const PALETTES: Record<PosterTheme, ThemePalette> = {
     lost: "#ff7988",
   },
   light: {
-    ink: "#2f2e3a",
     inkStrong: "#1f1e28",
     muted: "#656473",
     muted2: "#91909e",
@@ -154,7 +148,6 @@ const PALETTES: Record<PosterTheme, ThemePalette> = {
     uidBorder: "rgba(99, 84, 184, 0.24)",
     uidText: "#433886",
     tagline: "rgba(52, 51, 66, 0.72)",
-    footer: "rgba(64, 63, 78, 0.62)",
     gradeHigh: ["#6b2a5c", "#337b99"],
     gradeMid: ["#63406e", "#8f3482"],
     gradeLow: ["#533f5a", "#7b5c86"],
@@ -834,19 +827,16 @@ export async function renderB50Poster(
 }
 
 /**
- * Create an asset loader backed by Cloudflare Workers ASSETS (with optional HTTP origin fallback).
+ * Create an asset loader backed strictly by the Cloudflare Workers ASSETS binding.
  */
-export function createWorkerAssetLoader(env: Env, requestOrigin?: string): (relPath: string) => Promise<Uint8Array | null> {
+export function createWorkerAssetLoader(env: Env): (relPath: string) => Promise<Uint8Array | null> {
   return async (relPath: string) => {
     const clean = relPath.replace(/^\/+/, "");
-    if (env.ASSETS) {
-      const res = await env.ASSETS.fetch(new Request(`https://assets.local/b50-assets/${clean}`));
-      if (res.ok) return new Uint8Array(await res.arrayBuffer());
+    if (!clean || clean.includes("..") || clean.includes("\\") || /[\0\r\n]/.test(clean) || !env.ASSETS) {
+      return null;
     }
-    if (requestOrigin) {
-      const res = await fetch(`${requestOrigin.replace(/\/+$/, "")}/b50-assets/${clean}`);
-      if (res.ok) return new Uint8Array(await res.arrayBuffer());
-    }
+    const res = await env.ASSETS.fetch(new Request(`https://assets.local/b50-assets/${clean}`));
+    if (res.ok) return new Uint8Array(await res.arrayBuffer());
     return null;
   };
 }
@@ -856,16 +846,14 @@ export function createWorkerAssetLoader(env: Env, requestOrigin?: string): (relP
  */
 export async function renderAndStoreCustomB50(
   env: Env,
-  _store: Store,
   snapshot: B50Snapshot,
   options: {
     backgroundId?: string;
     random?: () => number;
-    requestOrigin?: string;
   } = {},
 ): Promise<{ snapshot: B50Snapshot; rendered: RenderedPosterResult }> {
   const rendered = await renderB50Poster(snapshot, {
-    loadAsset: createWorkerAssetLoader(env, options.requestOrigin),
+    loadAsset: createWorkerAssetLoader(env),
     loadMedia: async (key: string) => {
       const obj = await env.ARCHIVE.get(key);
       return obj ? new Uint8Array(await obj.arrayBuffer()) : null;
@@ -876,8 +864,11 @@ export async function renderAndStoreCustomB50(
 
   const tag = crypto.randomUUID().slice(0, 6);
   const key = `custom/${snapshot.id}-${rendered.backgroundId}-${tag}.jpg`;
-  const copy = new Uint8Array(rendered.jpeg);
-  await putAsset(env, key, copy.buffer, "image/jpeg", {
+  const jpegBuffer: ArrayBuffer =
+    rendered.jpeg.byteOffset === 0 && rendered.jpeg.byteLength === rendered.jpeg.buffer.byteLength
+      ? (rendered.jpeg.buffer as ArrayBuffer)
+      : rendered.jpeg.slice().buffer;
+  await putAsset(env, key, jpegBuffer, "image/jpeg", {
     kind: "custom-b50",
     snapshotId: snapshot.id,
     theme: rendered.theme,

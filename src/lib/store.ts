@@ -51,6 +51,7 @@ export class Store {
     }
     return snapshots.map(snapshot => ({ ...snapshot,
       ...(snapshot.potentialImageKey ? { potentialImageUrl: publicAssetUrl(this.env, snapshot.potentialImageKey) } : {}),
+      ...(snapshot.customImageKey ? { customImageUrl: publicAssetUrl(this.env, snapshot.customImageKey) } : {}),
       user: { ...snapshot.user, ...(snapshot.user.avatarImageKey ? { avatarImageUrl: publicAssetUrl(this.env, snapshot.user.avatarImageKey) } : {}) },
       best50: snapshot.best50.map(score => ({ ...score,
         difficultyAlias: score.difficultyAlias ?? aliases[`${score.songId}:${score.difficulty}`],

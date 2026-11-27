@@ -126,19 +126,22 @@ export async function verifyBotBindCode(env: Env, request: Request) {
  */
 export async function getBotB50Payload(
   env: Env,
-  options: { ensureCustom?: boolean; rerenderCustom?: boolean; backgroundId?: string; requestOrigin?: string } = {},
+  options: { ensureCustom?: boolean; rerenderCustom?: boolean; backgroundId?: string } = {},
 ) {
   const store = new Store(env);
   const latest = await store.latest();
   if (!latest) throw new AppError("尚未同步任何 B50 快照。", 404, "SNAPSHOT_NOT_FOUND");
 
-  if ((options.rerenderCustom || (options.ensureCustom && !latest.customImageKey)) && (env.ASSETS || options.requestOrigin)) {
-    await renderAndStoreCustomB50(env, store, latest, {
+  if ((options.rerenderCustom || (options.ensureCustom && !latest.customImageKey)) && env.ASSETS) {
+    const previousCustomKey = latest.customImageKey;
+    await renderAndStoreCustomB50(env, latest, {
       backgroundId: options.backgroundId,
-      requestOrigin: options.requestOrigin,
     });
     await store.writeSnapshot(latest);
     await store.backup(latest).catch(() => {});
+    if (previousCustomKey && previousCustomKey !== latest.customImageKey) {
+      await env.ARCHIVE.delete(previousCustomKey).catch(() => {});
+    }
   }
 
   return {

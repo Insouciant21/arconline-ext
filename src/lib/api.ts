@@ -112,17 +112,16 @@ async function botApi(
     const reqUrl = new URL(request.url);
     return json(await getBotB50Payload(env, {
       ensureCustom: reqUrl.searchParams.get("ensureCustom") === "1",
-      backgroundId: reqUrl.searchParams.get("bg") ?? undefined,
-      requestOrigin: reqUrl.origin,
+      backgroundId: parseBackgroundId(reqUrl),
     }));
   }
   if (path === "/api/bot/b50/rerender") {
     method(request, "POST");
+    if (env.MUTATIONS_ENABLED === "false") throw new AppError("维护中，暂时停止同步。", 503, "MAINTENANCE");
     const reqUrl = new URL(request.url);
     return json(await getBotB50Payload(env, {
       rerenderCustom: true,
-      backgroundId: reqUrl.searchParams.get("bg") ?? undefined,
-      requestOrigin: reqUrl.origin,
+      backgroundId: parseBackgroundId(reqUrl),
     }));
   }
   if (path === "/api/bot/sync") {
@@ -139,4 +138,10 @@ async function botApi(
     return await serveMedia(env, request, submission.background, { prefix: "/api/bot/media/", privateCookie: false });
   }
   throw new AppError("接口不存在。", 404, "NOT_FOUND");
+}
+function parseBackgroundId(url: URL): string | undefined {
+  const raw = url.searchParams.get("bg")?.trim();
+  if (!raw) return undefined;
+  if (!/^bg-\d{2}$/.test(raw)) throw new AppError("无效的背景编号。", 400, "INVALID_BACKGROUND_ID");
+  return raw;
 }

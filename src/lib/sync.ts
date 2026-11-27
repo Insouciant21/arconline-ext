@@ -157,7 +157,7 @@ export async function runStep(env: Env, job: JobRow, checkpoint: (state: SyncSta
     if (!snapshot) throw new AppError("任务快照不存在。", 404, "SNAPSHOT_MISSING");
     if (env.ASSETS) {
       try {
-        await measure(profiling, "render.custom_b50", () => renderAndStoreCustomB50(env, store, snapshot));
+        await measure(profiling, "render.custom_b50", () => renderAndStoreCustomB50(env, snapshot));
         await saveSnapshot(snapshot);
       } catch (error) {
         const message = error instanceof Error ? error.message : "未知渲染错误";
